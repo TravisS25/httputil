@@ -14,6 +14,13 @@ const (
 	DELETE = "DELETE"
 )
 
+const (
+	SSLDisable    = "disable"
+	SSLRequire    = "require"
+	SSLVerifyCA   = "verify-ca"
+	SSLVerifyFull = "verify-full"
+)
+
 //--------------------------- TYPES --------------------------------
 
 type DBConfig struct {
@@ -21,6 +28,7 @@ type DBConfig struct {
 	Password string
 	Name     string
 	Port     string
+	SSLMode  string
 }
 
 type Count struct {
@@ -89,12 +97,17 @@ func (db *DB) Query(query string, args ...interface{}) (httputil.Rower, error) {
 //----------------------------- FUNCTIONS -------------------------------------
 
 func NewDB(dbConfig DBConfig) (*DB, error) {
+	if dbConfig.SSLMode == "" {
+		dbConfig.SSLMode = SSLDisable
+	}
+
 	dbInfo := fmt.Sprintf(
-		"user=%s password=%s dbname=%s port=%s",
+		"user=%s password=%s dbname=%s port=%s sslmode=%s",
 		dbConfig.User,
 		dbConfig.Password,
 		dbConfig.Name,
 		dbConfig.Port,
+		dbConfig.SSLMode,
 	)
 
 	db, err := sqlx.Open("postgres", dbInfo)
