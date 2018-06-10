@@ -68,11 +68,12 @@ type DatabaseConfig struct {
 }
 
 type Database struct {
-	Name     string `yaml:"name"`
+	DBName   string `yaml:"db_name"`
 	User     string `yaml:"user"`
 	Password string `yaml:"password"`
 	Host     string `yaml:"host"`
 	Port     string `yaml:"port"`
+	SSlMode  string `yaml:"ssl_mode"`
 }
 
 // Settings is the configuration settings for the app

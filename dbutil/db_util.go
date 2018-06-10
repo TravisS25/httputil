@@ -24,9 +24,10 @@ const (
 //--------------------------- TYPES --------------------------------
 
 type DBConfig struct {
+	Host     string
 	User     string
 	Password string
-	Name     string
+	DBName   string
 	Port     string
 	SSLMode  string
 }
@@ -97,15 +98,12 @@ func (db *DB) Query(query string, args ...interface{}) (httputil.Rower, error) {
 //----------------------------- FUNCTIONS -------------------------------------
 
 func NewDB(dbConfig DBConfig) (*DB, error) {
-	if dbConfig.SSLMode == "" {
-		dbConfig.SSLMode = SSLDisable
-	}
-
 	dbInfo := fmt.Sprintf(
-		"user=%s password=%s dbname=%s port=%s sslmode=%s",
+		"host=%s user=%s password=%s dbname=%s port=%s sslmode=%s",
+		dbConfig.Host,
 		dbConfig.User,
 		dbConfig.Password,
-		dbConfig.Name,
+		dbConfig.DBName,
 		dbConfig.Port,
 		dbConfig.SSLMode,
 	)
