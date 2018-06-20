@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 
 	"github.com/TravisS25/httputil"
 	"github.com/TravisS25/httputil/cacheutil"
@@ -18,38 +19,6 @@ const (
 
 //----------------------- INTERFACES ------------------------------
 
-// type Tx interface {
-// 	httputil.Tx
-// }
-
-// type Querier interface {
-// 	httputil.Querier
-// }
-
-// type Scanner interface {
-// 	httputil.Scanner
-// }
-
-// type Rower interface {
-// 	httputil.Rower
-// }
-
-// type Transaction interface {
-// 	httputil.Transaction
-// }
-
-// type XODB interface {
-// 	httputil.XODB
-// }
-
-// type SqlxDB interface {
-// 	httputil.SqlxDB
-// }
-
-// type DBInterface interface {
-// 	httputil.DBInterface
-// }
-
 type FormValidator interface {
 	SetQuerier(querier httputil.Querier)
 	SetCache(cache cacheutil.CacheStore)
@@ -58,31 +27,31 @@ type FormValidator interface {
 
 //----------------------- TYPES ------------------------------
 
-// type CacheStore struct {
-// 	cacheutil.CacheStore
-// }
+type ConvertibleBoolean struct {
+	value bool
+}
+
+func (c *ConvertibleBoolean) UnmarshalJSON(data []byte) error {
+	asString := string(data)
+	convertedBool, err := strconv.ParseBool(asString)
+
+	if err != nil {
+		c.value = false
+	} else {
+		c.value = convertedBool
+	}
+
+	return nil
+}
+
+func (c ConvertibleBoolean) Value() bool {
+	return c.value
+}
 
 type FormSelection struct {
 	Text  string      `json:"text"`
 	Value interface{} `json:"value"`
 }
-
-// func IsValid(isValid bool) *validRule {
-// 	fmt.Println(isValid)
-// 	return &validRule{isValid: isValid, message: "Not Valid"}
-// }
-
-// func RequiredError(field string) string {
-// 	return fmt.Sprintf(errRequired, field)
-// }
-
-// func UniqueError(field string) string {
-// 	return fmt.Sprintf(errUnique, field)
-// }
-
-// func ExistError(field string) string {
-// 	return fmt.Sprintf(errDoesNotExist, field)
-// }
 
 type FormValidation struct {
 	db    httputil.Querier

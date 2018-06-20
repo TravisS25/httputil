@@ -3,6 +3,7 @@ package confutil
 import (
 	"io/ioutil"
 	"os"
+	"regexp"
 
 	_ "github.com/lib/pq"
 
@@ -20,14 +21,29 @@ const (
 	PostgresDateLayout = "2006-01-02T15:04:05Z"
 
 	// FormDateTimeLayout is format that should be received from a form
-	FormDateTimeLayout = "01/02/2006 3:04PM"
+	FormDateTimeLayout = "01/02/2006 3:04 pm"
 
 	// FormDateLayout is format that should be received from a form
 	FormDateLayout = "01/02/2006"
 
 	// HashPassword decodes to "currentpassword"
 	HashPassword = "$2a$10$Olu8gAjliUFT4rU1Xe6kz.FI3qWvEyXeTUWCI9k196z6.rPB44t5K"
+
+	GroupKey   = "%s-groups"
+	URLKey     = "%s-urls"
+	LockoutKey = "%s-lockout"
 )
+
+var (
+	UserCtxKey      = Key{KeyName: "user"}
+	GroupCtxKey     = Key{KeyName: "groupName"}
+	SignupKey       = Key{KeyName: "signup"}
+	FormDateTimeExp = regexp.MustCompile("^[0-9]{1,2}/[0-9]{1,2}/[0-9]{4} [0-9]{1,2}:[0-9]{2} (?i)(AM|PM)$")
+)
+
+type Key struct {
+	KeyName string
+}
 
 func ConfigSettings(envString string) *Settings {
 	var settings *Settings
