@@ -235,64 +235,18 @@ func ApplyAll(
 	newQuery := sqlx.Rebind(bindVar, *query)
 	*query = newQuery
 
+	// for i := range varReplacements {
+	// 	if varReplacements[i] == nil {
+	// 		varReplacements = append(varReplacements[:i], varReplacements[i+1:]...)
+	// 	}
+	// }
+
 	return varReplacements, nil
 }
 
 func CountSelect(column string) string {
 	return fmt.Sprintf("count(%s) as total", column)
 }
-
-// func parseWhereQuery(query string) string {
-// 	query = strings.ToLower(query)
-
-// 	for {
-// 		if index := strings.Index(query[startingIndex:], "where"); index > -1 {
-// 			var before string
-// 			var after string
-// 			moreAfter := true
-// 			validBefore := false
-// 			validAfter := false
-
-// 			if index == 0 {
-// 				validBefore = true
-// 			} else {
-// 				before = query[index-1 : index]
-// 			}
-
-// 			if len(query[index:]) == 5 {
-// 				validAfter = true
-// 				moreAfter = false
-// 			} else {
-// 				after = query[index+5 : index+6]
-// 			}
-
-// 			if before == "\t" || before == "\n" || before == " " {
-// 				validBefore = true
-// 			}
-
-// 			if after == "\t" || after == "\n" || after == " " {
-// 				validAfter = true
-// 			}
-
-// 			if !validBefore || !validAfter {
-// 				fmt.Println("recursive")
-
-// 				if moreAfter {
-// 					parseWhereQuery(query, index+5)
-// 				} else {
-// 					return " where "
-// 				}
-// 			}
-
-// 			return " and "
-// 		} else{
-
-// 		}
-// 	}
-
-// 	fmt.Println("made itttt")
-// 	return " where "
-// }
 
 func replaceFields(filters []*Filter, fieldNames []string) ([]interface{}, error) {
 	replacements := make([]interface{}, 0)
@@ -303,7 +257,7 @@ func replaceFields(filters []*Filter, fieldNames []string) ([]interface{}, error
 			if v.Field == k {
 				containsField = true
 
-				if v.Value != "" {
+				if v.Value != "" && v.Operator != "isnull" && v.Operator != "isnotnull" {
 					replacements = append(replacements, v.Value)
 				}
 

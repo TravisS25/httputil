@@ -48,6 +48,33 @@ func (c ConvertibleBoolean) Value() bool {
 	return c.value
 }
 
+// type UnmarshalIntPtr struct {
+// 	value *int
+// }
+
+// func (m UnmarshalIntPtr) UnmarshalJSON(data []byte) error {
+// 	fmt.Println("helllllo")
+// 	if data == nil {
+// 		m.value = nil
+// 		return nil
+// 	}
+
+// 	asString := string(data)
+// 	convertedInt, err := strconv.ParseInt(asString, 10, 32)
+
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	value := int(convertedInt)
+// 	m.value = &value
+// 	return nil
+// }
+
+// func (m UnmarshalIntPtr) Value() *int {
+// 	return m.value
+// }
+
 type FormSelection struct {
 	Text  string      `json:"text"`
 	Value interface{} `json:"value"`
