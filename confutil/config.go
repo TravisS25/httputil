@@ -37,7 +37,6 @@ const (
 var (
 	UserCtxKey      = Key{KeyName: "user"}
 	GroupCtxKey     = Key{KeyName: "groupName"}
-	SignupKey       = Key{KeyName: "signup"}
 	FormDateTimeExp = regexp.MustCompile("^[0-9]{1,2}/[0-9]{1,2}/[0-9]{4} [0-9]{1,2}:[0-9]{2} (?i)(AM|PM)$")
 )
 
