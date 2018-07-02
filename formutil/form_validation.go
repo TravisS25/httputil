@@ -11,6 +11,7 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
+// Custom error messages used for form validation
 const (
 	errUnique       = "%s already exists"
 	errRequired     = "%s is required"
@@ -23,6 +24,21 @@ type FormValidator interface {
 	SetQuerier(querier httputil.Querier)
 	SetCache(cache cacheutil.CacheStore)
 	Validate() error
+}
+
+// Form is main interface that should be used within you testing
+// and within your http.HandleFunc routing
+type Form interface {
+	SetQuerier(querier httputil.Querier)
+	// SetCache(cache cacheutil.CacheStore)
+	Validate(item interface{}) error
+}
+
+// FormCache extends Form interface by adding abilty to set cache
+// for form validation
+type FormCache interface {
+	Form
+	SetCache(cache cacheutil.CacheStore)
 }
 
 //----------------------- TYPES ------------------------------
@@ -48,82 +64,77 @@ func (c ConvertibleBoolean) Value() bool {
 	return c.value
 }
 
-// type UnmarshalIntPtr struct {
-// 	value *int
-// }
-
-// func (m UnmarshalIntPtr) UnmarshalJSON(data []byte) error {
-// 	fmt.Println("helllllo")
-// 	if data == nil {
-// 		m.value = nil
-// 		return nil
-// 	}
-
-// 	asString := string(data)
-// 	convertedInt, err := strconv.ParseInt(asString, 10, 32)
-
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	value := int(convertedInt)
-// 	m.value = &value
-// 	return nil
-// }
-
-// func (m UnmarshalIntPtr) Value() *int {
-// 	return m.value
-// }
-
+// FormSelection is generic struct used for html forms
 type FormSelection struct {
 	Text  string      `json:"text"`
 	Value interface{} `json:"value"`
 }
 
+// FormValidation is the main struct that other structs will
+// embed to validate json data.  It is also the struct that
+// implements SetQuerier and SetCache of Form interface
 type FormValidation struct {
 	db    httputil.Querier
 	cache cacheutil.CacheStore
 }
 
-func (m *FormValidation) GetQuerier() httputil.Querier {
-	return m.db
+// GetQuerier returns httputil.Querier
+func (f *FormValidation) GetQuerier() httputil.Querier {
+	return f.db
 }
 
-func (m *FormValidation) GetCache() cacheutil.CacheStore {
-	return m.cache
+// GetCache returns cacheutil.CacheStore
+func (f *FormValidation) GetCache() cacheutil.CacheStore {
+	return f.cache
 }
 
-func (m *FormValidation) SetQuerier(querier httputil.Querier) {
-	m.db = querier
+// SetQuerier sets httputil.Querier
+func (f *FormValidation) SetQuerier(querier httputil.Querier) {
+	f.db = querier
 }
 
-func (m *FormValidation) SetCache(cache cacheutil.CacheStore) {
-	m.cache = cache
+// SetCache sets cacheutil.CacheStore
+func (f *FormValidation) SetCache(cache cacheutil.CacheStore) {
+	f.cache = cache
 }
 
-func (m *FormValidation) IsValid(isValid bool) *validRule {
+// IsValid returns *validRule based on isValid parameter
+// Basically IsValid is a wrapper for the passed bool
+// to return valid rule to then apply custom error message
+// for the Error function
+func (f *FormValidation) IsValid(isValid bool) *validRule {
 	return &validRule{isValid: isValid, message: "Not Valid"}
 }
 
-func (m *FormValidation) RequiredError(field string) string {
+// RequiredError is wrapper for the field parameter
+// Returns field name with custom required message
+func (f *FormValidation) RequiredError(field string) string {
 	return fmt.Sprintf(errRequired, field)
 }
 
-func (m *FormValidation) UniqueError(field string) string {
+// UniqueError is wrapper for field parameter
+// Returns field name with custom message stating that
+// the field is not unique
+func (f *FormValidation) UniqueError(field string) string {
 	return fmt.Sprintf(errUnique, field)
 }
 
-func (m *FormValidation) ExistError(field string) string {
+// ExistError is wrapper for field parameter
+// Returns field name with custom message stating that
+// that the field does not exist
+func (f *FormValidation) ExistError(field string) string {
 	return fmt.Sprintf(errDoesNotExist, field)
 }
 
-func (m *FormValidation) Unique(formValue string, instanceValue string, query string, args ...interface{}) bool {
+// Unique returns true if the given formValue and instanceValue are not
+// found in the query given
+func (f *FormValidation) Unique(formValue string, instanceValue string, query string, args ...interface{}) bool {
 	if instanceValue == formValue {
 		return true
 	}
 
 	var filler string
-	err := m.db.QueryRow(query, args...).Scan(&filler)
+	err := f.db.QueryRow(query, args...).Scan(&filler)
 
 	if err != sql.ErrNoRows {
 		return false
@@ -132,6 +143,10 @@ func (m *FormValidation) Unique(formValue string, instanceValue string, query st
 	return true
 }
 
+// ValidIDs checks if the query given, which should consist of trying to find
+// ids, equals the total number of args passed
+// If the number of arguments passed equals the number of rows returned, then
+// we return true else returns false
 func (f *FormValidation) ValidIDs(query string, args ...interface{}) (bool, error) {
 	q, arguments, err := sqlx.In(query, args...)
 
@@ -143,7 +158,7 @@ func (f *FormValidation) ValidIDs(query string, args ...interface{}) (bool, erro
 	rower, err := f.db.Query(q, arguments...)
 
 	if err != nil {
-		fmt.Printf("err: %s", err)
+		//fmt.Printf("err: %s", err)
 		return false, err
 	}
 
@@ -153,17 +168,17 @@ func (f *FormValidation) ValidIDs(query string, args ...interface{}) (bool, erro
 	}
 
 	if len(arguments) != counter {
-		fmt.Printf("len arg: %d; len counter: %d\n", len(arguments), counter)
-		fmt.Printf("slice: %d", arguments)
 		return false, nil
 	}
 
 	return true, nil
 }
 
-func (m *FormValidation) Exists(query string, args ...interface{}) bool {
+// Exists returns true if given query returns a row from database
+// Else return false
+func (f *FormValidation) Exists(query string, args ...interface{}) bool {
 	var filler string
-	err := m.db.QueryRow(query, args...).Scan(&filler)
+	err := f.db.QueryRow(query, args...).Scan(&filler)
 
 	if err == sql.ErrNoRows {
 		return false

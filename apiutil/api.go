@@ -26,7 +26,7 @@ var (
 	ErrServerMessage = errors.New("Server error, please try again later")
 )
 
-// LogError will takes given error and append to log file given
+// LogError will take given error and append to log file given
 func LogError(err error, customMessage string, logFile string) error {
 	err = errors.Wrap(err, customMessage)
 	file, err := os.Open(logFile)
@@ -191,6 +191,11 @@ func GetUserGroups(r *http.Request) []string {
 	return nil
 }
 
+// HasGroup is a wrapper for finding if given groups names is in
+// group context of given request
+// If a group name is found, return true; else returns false
+// The search is based on OR logic so if any one of the given strings
+// is found, function will return true
 func HasGroup(r *http.Request, searchGroups ...string) bool {
 	groupArray := r.Context().Value(groupCtxKey).([]string)
 

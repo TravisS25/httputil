@@ -44,6 +44,8 @@ type Key struct {
 	KeyName string
 }
 
+// ConfigSettings simply takes a string which should reference an enviroment variable
+// that points to config file used for application
 func ConfigSettings(envString string) *Settings {
 	var settings *Settings
 	configFile := os.Getenv(envString)
