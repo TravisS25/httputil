@@ -28,17 +28,19 @@ var (
 
 // LogError will take given error and append to log file given
 func LogError(err error, customMessage string, logFile string) error {
-	err = errors.Wrap(err, customMessage)
-	file, err := os.Open(logFile)
+	if logFile != "" {
+		err = errors.Wrap(err, customMessage)
+		file, err := os.Open(logFile)
 
-	if err != nil {
-		return err
-	}
+		if err != nil {
+			return err
+		}
 
-	defer file.Close()
+		defer file.Close()
 
-	if _, err = file.WriteString(err.Error()); err != nil {
-		return err
+		if _, err = file.WriteString(err.Error()); err != nil {
+			return err
+		}
 	}
 
 	return nil

@@ -31,7 +31,7 @@ type key struct {
 }
 
 // IUser is the interface that must be implemented by your user session struct
-// to use AuthMiddleware and RoutingMiddleware
+// to use GroupMiddleware and RoutingMiddleware
 type IUser interface {
 	Email() string
 }

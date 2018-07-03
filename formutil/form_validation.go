@@ -4,11 +4,21 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/TravisS25/httputil"
 	"github.com/TravisS25/httputil/cacheutil"
 	"github.com/jmoiron/sqlx"
+)
+
+var (
+	PhoneNumberRegex *regexp.Regexp
+	EmailRegex       *regexp.Regexp
+	ZipRegex         *regexp.Regexp
+	DateRegex        *regexp.Regexp
+	ColorRegex       *regexp.Regexp
 )
 
 // Custom error messages used for form validation
@@ -206,4 +216,21 @@ func (v *validRule) Error(message string) *validRule {
 		message: message,
 		isValid: v.isValid,
 	}
+}
+
+//----------------------- FUNCTIONS ------------------------------
+
+func StandardizeSpaces(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
+func init() {
+	initRegexExpressions()
+}
+
+func initRegexExpressions() {
+	EmailRegex, _ = regexp.Compile("^.+@[a-zA-Z0-9.]+$")
+	ZipRegex, _ = regexp.Compile("^[0-9]{5}$")
+	PhoneNumberRegex, _ = regexp.Compile("^\\([0-9]{3}\\)-[0-9]{3}-[0-9]{4}$")
+	ColorRegex, _ = regexp.Compile("^#[0-9a-z]{6}$")
 }
