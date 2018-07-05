@@ -54,7 +54,7 @@ func CheckError(err error, customMessage string) {
 
 // ServerError takes given err along with customMessage and writes back to client
 // then logs the error given the logFile
-func ServerError(w http.ResponseWriter, err error, customMessage string, logFile string) {
+func ServerError(w http.ResponseWriter, err error, customMessage string) {
 	w.WriteHeader(http.StatusInternalServerError)
 
 	if customMessage != "" {
@@ -64,7 +64,6 @@ func ServerError(w http.ResponseWriter, err error, customMessage string, logFile
 	}
 
 	CheckError(err, customMessage)
-	LogError(err, customMessage, logFile)
 }
 
 // HasFormErrors determines if err is nil and if it is, convert it to json form

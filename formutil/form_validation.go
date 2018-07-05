@@ -39,7 +39,7 @@ type FormValidator interface {
 // Form is main interface that should be used within you testing
 // and within your http.HandleFunc routing
 type Form interface {
-	SetQuerier(querier httputil.Querier)
+	//SetQuerier(querier httputil.Querier)
 	// SetCache(cache cacheutil.CacheStore)
 	Validate(item interface{}) error
 }
