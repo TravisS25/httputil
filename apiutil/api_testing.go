@@ -35,52 +35,61 @@ type TestCase struct {
 // and applies tests based on each TestCase struct config
 func RunTestCases(t *testing.T, testCases []TestCase) {
 	for _, testCase := range testCases {
-		var req *http.Request
-		var err error
+		t.Run(testCase.TestName, func(v *testing.T) {
+			var req *http.Request
+			var err error
 
-		// If Form option is nil, init req without added parameters
-		// Else json encode given form and apply to request
-		if testCase.Form == nil {
-			req, err = http.NewRequest(testCase.Method, testCase.RequestURL, nil)
-		} else {
-			var buffer bytes.Buffer
-			encoder := json.NewEncoder(&buffer)
-			encoder.Encode(&testCase.Form)
-			req, err = http.NewRequest(testCase.Method, testCase.RequestURL, &buffer)
-		}
-
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// If ContextValues is not nil, apply given context values to req
-		if testCase.ContextValues != nil {
-			ctx := req.Context()
-
-			for key, value := range testCase.ContextValues {
-				ctx = context.WithValue(ctx, key, value)
+			// If Form option is nil, init req without added parameters
+			// Else json encode given form and apply to request
+			if testCase.Form == nil {
+				req, err = http.NewRequest(testCase.Method, testCase.RequestURL, nil)
+			} else {
+				var buffer bytes.Buffer
+				encoder := json.NewEncoder(&buffer)
+				encoder.Encode(&testCase.Form)
+				req, err = http.NewRequest(testCase.Method, testCase.RequestURL, &buffer)
 			}
 
-			req = req.WithContext(ctx)
-		}
-
-		// Init recorder that will be written to based on the status
-		// we get from created request
-		rr := httptest.NewRecorder()
-		testCase.Handler.ServeHTTP(rr, req)
-
-		// If status is not what was expected, print error
-		if status := rr.Code; status != testCase.ExpectedStatus {
-			t.Errorf("got status %d; want %d\n", status, testCase.ExpectedStatus)
-			t.Errorf("body response: %s\n", rr.Body.String())
-		}
-
-		// If ExpectedBody option was given and does not equal what was
-		// returned, print error
-		if testCase.ExpectedBody != "" {
-			if testCase.ExpectedBody != rr.Body.String() {
-				t.Errorf("got body %s; want %s\n", rr.Body.String(), testCase.ExpectedBody)
+			if err != nil {
+				v.Fatal(err)
 			}
-		}
+
+			// If ContextValues is not nil, apply given context values to req
+			if testCase.ContextValues != nil {
+				ctx := req.Context()
+
+				for key, value := range testCase.ContextValues {
+					ctx = context.WithValue(ctx, key, value)
+				}
+
+				req = req.WithContext(ctx)
+			}
+
+			// Init recorder that will be written to based on the status
+			// we get from created request
+			rr := httptest.NewRecorder()
+			testCase.Handler.ServeHTTP(rr, req)
+
+			// If status is not what was expected, print error
+			if status := rr.Code; status != testCase.ExpectedStatus {
+				v.Errorf("got status %d; want %d\n", status, testCase.ExpectedStatus)
+				v.Errorf("body response: %s\n", rr.Body.String())
+			}
+
+			// If ExpectedBody option was given and does not equal what was
+			// returned, print error
+			if testCase.ExpectedBody != "" {
+				if testCase.ExpectedBody != rr.Body.String() {
+					v.Errorf("got body %s; want %s\n", rr.Body.String(), testCase.ExpectedBody)
+				}
+			}
+		})
 	}
+}
+
+func GetJSONBuffer(item interface{}) bytes.Buffer {
+	var buffer bytes.Buffer
+	encoder := json.NewEncoder(&buffer)
+	encoder.Encode(&item)
+	return buffer
 }

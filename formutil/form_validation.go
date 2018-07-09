@@ -38,18 +38,22 @@ type FormValidator interface {
 
 // Form is main interface that should be used within you testing
 // and within your http.HandleFunc routing
-type Form interface {
-	//SetQuerier(querier httputil.Querier)
-	// SetCache(cache cacheutil.CacheStore)
+// type Form interface {
+// 	Validate(item interface{}) error
+// }
+
+// Validator is main interface that should be used within you testing
+// and within your http.HandleFunc routing
+type Validator interface {
 	Validate(item interface{}) error
 }
 
-// FormCache extends Form interface by adding abilty to set cache
-// for form validation
-type FormCache interface {
-	Form
-	SetCache(cache cacheutil.CacheStore)
-}
+// // FormCache extends Form interface by adding abilty to set cache
+// // for form validation
+// type FormCache interface {
+// 	Form
+// 	SetCache(cache cacheutil.CacheStore)
+// }
 
 //----------------------- TYPES ------------------------------
 

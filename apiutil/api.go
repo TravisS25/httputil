@@ -8,6 +8,7 @@ import (
 	"os"
 
 	validation "github.com/go-ozzo/ozzo-validation"
+	"github.com/gorilla/csrf"
 	"github.com/gorilla/sessions"
 	"github.com/pkg/errors"
 )
@@ -44,6 +45,11 @@ func LogError(err error, customMessage string, logFile string) error {
 	}
 
 	return nil
+}
+
+// SetToken is wrapper function for setting csrf token header
+func SetToken(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("X-CSRF-Token", csrf.Token(r))
 }
 
 // CheckError simply prints given error in verbose to stdout
