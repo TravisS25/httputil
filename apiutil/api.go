@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 
+	"github.com/TravisS25/httputil/mailutil"
 	validation "github.com/go-ozzo/ozzo-validation"
 	"github.com/gorilla/csrf"
 	"github.com/gorilla/sessions"
 	"github.com/pkg/errors"
+	"github.com/urfave/negroni"
 )
 
 var (
@@ -215,4 +218,61 @@ func HasGroup(r *http.Request, searchGroups ...string) bool {
 	}
 
 	return false
+}
+
+// PanicHandlerFunc is wrapper util function for using
+// against negroni#Recovery#PanicHandlerFunc function
+//
+// This function gives functionality of emailing a panic
+// error message to desired parties along with slight
+// formatting abilities of the sent message
+//
+// emailConfig:
+//		Config struct for emailing error message.  If email
+//		can't be sent, function will panic with error message
+// subSearchStrings:
+// 		Substring list of a library(s) path you wish to search for
+// 		which will be taken from full stack trace and narrowed down
+// 		to only display that library(s) in the message.  This is just
+//		to help reduce the clutter of a stacktrace that you don't
+//		care about
+func PanicHandlerFunc(to []string, from, subject string, subSearchStrings []string, mail mailutil.SendMessage) func(*negroni.PanicInformation) {
+	return func(info *negroni.PanicInformation) {
+		var stack string
+		ss := strings.Fields(info.StackAsString())
+
+		if subSearchStrings == nil {
+			for _, v := range ss {
+				stack += v + "<br />"
+			}
+		} else {
+			if len(subSearchStrings) == 0 {
+				for _, v := range ss {
+					stack += v + "<br />"
+				}
+			} else {
+				for _, v := range ss {
+					for _, t := range subSearchStrings {
+						if strings.Contains(v, t) {
+							stack += v + "<br />"
+						}
+					}
+				}
+			}
+		}
+
+		html := info.RequestDescription() + "<br /><br />" + stack
+		err := mailutil.SendEmail(
+			to,
+			from,
+			subject,
+			nil,
+			[]byte(html),
+			mail,
+		)
+
+		if err != nil {
+			panic("sending mail error: " + err.Error())
+		}
+	}
 }

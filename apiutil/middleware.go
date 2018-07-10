@@ -46,7 +46,7 @@ type IUser interface {
 // post, put, or delete request
 // This is used in conjunction with Middleware#LogEntryMiddleware
 type InsertLogger interface {
-	InsertLog(r *http.Request, payload interface{}, db httputil.DBInterface) error
+	InsertLog(r *http.Request, payload string, db httputil.DBInterface) error
 }
 
 type Middleware struct {
@@ -77,9 +77,15 @@ func (m *Middleware) LogEntryMiddleware(w http.ResponseWriter, r *http.Request, 
 
 	if r.Method == "POST" || r.Method == "PUT" || r.Method == "DELETE" {
 		if (rw.Status() == 0 || rw.Status() == 200) && err == nil {
-			m.Inserter.InsertLog(r, payload, m.DB)
+			jsonBytes, err := json.Marshal(payload)
+
+			if err != nil {
+				panic("error inserting log into db")
+			}
+
+			m.Inserter.InsertLog(r, string(jsonBytes), m.DB)
 		} else if rw.Status() == 0 || rw.Status() == 200 {
-			m.Inserter.InsertLog(r, nil, m.DB)
+			m.Inserter.InsertLog(r, "", m.DB)
 		}
 	}
 }
@@ -229,30 +235,30 @@ func (m *middleware) SetUserSessionName(name string) {
 	m.userSessionName = name
 }
 
-func (m *middleware) LogEntryMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	var payload interface{}
-	var err error
-	rw := negroni.NewResponseWriter(w)
+// func (m *middleware) LogEntryMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
+// 	var payload interface{}
+// 	var err error
+// 	rw := negroni.NewResponseWriter(w)
 
-	if r.Method == "POST" || r.Method == "PUT" || r.Method == "DELETE" {
-		if r.Body != nil {
-			body, _ := ioutil.ReadAll(r.Body)
-			r.Body = ioutil.NopCloser(bytes.NewBuffer(body))
-			dec := json.NewDecoder(bytes.NewBuffer(body))
-			err = dec.Decode(&payload)
-		}
-	}
+// 	if r.Method == "POST" || r.Method == "PUT" || r.Method == "DELETE" {
+// 		if r.Body != nil {
+// 			body, _ := ioutil.ReadAll(r.Body)
+// 			r.Body = ioutil.NopCloser(bytes.NewBuffer(body))
+// 			dec := json.NewDecoder(bytes.NewBuffer(body))
+// 			err = dec.Decode(&payload)
+// 		}
+// 	}
 
-	next(rw, r)
+// 	next(rw, r)
 
-	if r.Method == "POST" || r.Method == "PUT" || r.Method == "DELETE" {
-		if (rw.Status() == 0 || rw.Status() == 200) && err == nil {
-			m.inserter.InsertLog(r, payload, m.db)
-		} else {
-			m.inserter.InsertLog(r, nil, m.db)
-		}
-	}
-}
+// 	if r.Method == "POST" || r.Method == "PUT" || r.Method == "DELETE" {
+// 		if (rw.Status() == 0 || rw.Status() == 200) && err == nil {
+// 			m.inserter.InsertLog(r, payload, m.db)
+// 		} else {
+// 			m.inserter.InsertLog(r, nil, m.db)
+// 		}
+// 	}
+// }
 
 // Authmiddleware is middleware used to check for authenication of incoming requests
 // If there is a session for a user for current request, we add this to the context of the request

@@ -64,6 +64,11 @@ type Message struct {
 	message       string
 	messageFormat string
 	images        []string
+
+	Headers       map[string][]string
+	Message       string
+	MessageFormat string
+	Images        []string
 }
 
 // SetEmbedImages takes a like of file names and embeds them into
@@ -105,6 +110,16 @@ func (m *Message) GetMessageFormat() string {
 // GetImages returns the current message's embeded images
 func (m *Message) GetImages() []string {
 	return m.images
+}
+
+// EmailerConfig is config struct for sending basic emails
+type EmailerConfig struct {
+	To        []string
+	From      string
+	Subject   string
+	ImgUrls   []string
+	Message   []byte
+	Messenger SendMessage
 }
 
 // SendEmail is generic shortcut method for sending an email
