@@ -125,6 +125,15 @@ func GetUser(r *http.Request) interface{} {
 	return r.Context().Value(userCtxKey)
 }
 
+// GetUserEmail returns a user's email if set in userctx, else returns nil
+func GetUserEmail(r *http.Request) string {
+	if r.Context().Value(emailCtxKey) == nil {
+		return ""
+	}
+
+	return r.Context().Value(emailCtxKey).(string)
+}
+
 // HasBodyError checks if the "Body" field of the request parameter is nil or not
 // If nil, we write to client with error message, 406 status and return true
 // Else return false

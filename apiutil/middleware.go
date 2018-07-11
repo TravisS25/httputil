@@ -29,6 +29,7 @@ const (
 var (
 	userCtxKey  = key{KeyName: "user"}
 	groupCtxKey = key{KeyName: "groupName"}
+	emailCtxKey = key{KeyName: "email"}
 )
 
 type key struct {
@@ -40,6 +41,10 @@ type key struct {
 type IUser interface {
 	GetID() string
 	GetEmail() string
+}
+
+type email struct {
+	Email string `json:"email"`
 }
 
 // InsertLogger is interface that allows to log user's actions of
@@ -106,6 +111,7 @@ func (m *Middleware) AuthMiddleware(w http.ResponseWriter, r *http.Request, next
 
 	if val, ok := session.Values[m.UserSessionName]; ok {
 		var user interface{}
+		var email email
 		err := json.Unmarshal(val.([]byte), &user)
 
 		if err != nil {
@@ -113,8 +119,16 @@ func (m *Middleware) AuthMiddleware(w http.ResponseWriter, r *http.Request, next
 			return
 		}
 
+		err = json.Unmarshal(val.([]byte), &email)
+
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
 		ctx := context.WithValue(r.Context(), userCtxKey, &user)
-		next(w, r.WithContext(ctx))
+		ctxWithEmail := context.WithValue(ctx, emailCtxKey, email.Email)
+		next(w, r.WithContext(ctxWithEmail))
 	} else {
 		next(w, r)
 	}
@@ -125,13 +139,13 @@ func (m *Middleware) AuthMiddleware(w http.ResponseWriter, r *http.Request, next
 // User session struct must implement IUser interface to use GroupMiddleware
 //
 // Middleware#CacheStore must be set in order to use
+// Middleware#AuthMiddleware must come before this middleware
 func (m *Middleware) GroupMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	user := GetUser(r)
-
-	if user != nil {
+	if r.Context().Value(emailCtxKey) != nil {
 		var groupArray []string
-		currentUser := user.(IUser)
-		groups := fmt.Sprintf(GroupKey, currentUser.GetEmail())
+		email := r.Context().Value(emailCtxKey).(string)
+
+		groups := fmt.Sprintf(GroupKey, email)
 		groupBytes, _ := m.CacheStore.Get(groups)
 		json.Unmarshal(groupBytes, &groupArray)
 		ctx := context.WithValue(r.Context(), groupCtxKey, groupArray)
@@ -148,16 +162,16 @@ func (m *Middleware) GroupMiddleware(w http.ResponseWriter, r *http.Request, nex
 // in not, we 404
 //
 // Middleware#CacheStore and Middleware#AnonRouting must be set to use
+// Middleware#AuthMiddleware and Middleware#GroupMiddleware must be before this middleware
 func (m *Middleware) RoutingMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
 	rootPath := "/"
 	path := r.URL.Path
 	allowedPath := false
-	user := GetUser(r)
 
 	if r.Method != "OPTIONS" {
-		if user != nil {
-			currentUser := user.(IUser)
-			key := fmt.Sprintf(URLKey, currentUser.GetEmail())
+		if r.Context().Value(emailCtxKey) != nil {
+			email := r.Context().Value(emailCtxKey).(string)
+			key := fmt.Sprintf(URLKey, email)
 			urlBytes, err := m.CacheStore.Get(key)
 
 			if err != nil {
@@ -203,10 +217,9 @@ func (m *Middleware) RoutingMiddleware(w http.ResponseWriter, r *http.Request, n
 			return
 		}
 
-		next(w, r)
-	} else {
-		next(w, r)
 	}
+
+	next(w, r)
 }
 
 // ----------------------------------------------------
