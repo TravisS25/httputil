@@ -100,8 +100,8 @@ func SendPayload(w http.ResponseWriter, r *http.Request, addUserContext bool, pa
 		if user := GetUser(r); user != nil {
 			payload["user"] = user
 
-			if r.Context().Value(groupCtxKey) != nil {
-				payload["groups"] = r.Context().Value(groupCtxKey).([]string)
+			if r.Context().Value(GroupCtxKey) != nil {
+				payload["groups"] = r.Context().Value(GroupCtxKey).([]string)
 			}
 		}
 	}
@@ -117,21 +117,21 @@ func SendPayload(w http.ResponseWriter, r *http.Request, addUserContext bool, pa
 }
 
 // GetUser returns a user if set in userctx, else returns nil
-func GetUser(r *http.Request) interface{} {
-	if r.Context().Value(userCtxKey) == nil {
+func GetUser(r *http.Request) []byte {
+	if r.Context().Value(UserCtxKey) == nil {
 		return nil
 	}
 
-	return r.Context().Value(userCtxKey)
+	return r.Context().Value(UserCtxKey).([]byte)
 }
 
-// GetUserEmail returns a user's email if set in userctx, else returns nil
-func GetUserEmail(r *http.Request) string {
-	if r.Context().Value(emailCtxKey) == nil {
-		return ""
+// GetMiddlewareUser returns a user's email if set in userctx, else returns nil
+func GetMiddlewareUser(r *http.Request) *middlewareUser {
+	if r.Context().Value(MiddlewareUserCtxKey) == nil {
+		return nil
 	}
 
-	return r.Context().Value(emailCtxKey).(string)
+	return r.Context().Value(MiddlewareUserCtxKey).(*middlewareUser)
 }
 
 // HasBodyError checks if the "Body" field of the request parameter is nil or not
@@ -177,7 +177,7 @@ func HasQueryError(w http.ResponseWriter, err error, notFoundMessage string) boo
 // LogoutUser deletes user session based on session object passed along with userSession parameter
 // If userSession is empty string, then string "user" will be used to delete from session object
 func LogoutUser(w http.ResponseWriter, r *http.Request, sessionStore sessions.Store, userSession string) error {
-	if r.Context().Value(userCtxKey) != nil {
+	if r.Context().Value(UserCtxKey) != nil {
 		var session *sessions.Session
 		var err error
 
@@ -203,8 +203,8 @@ func LogoutUser(w http.ResponseWriter, r *http.Request, sessionStore sessions.St
 // GetUserGroups is wrapper for to returning group string slice from context of request
 // If there is no groupctx, returns nil
 func GetUserGroups(r *http.Request) []string {
-	if r.Context().Value(groupCtxKey) != nil {
-		return r.Context().Value(groupCtxKey).([]string)
+	if r.Context().Value(GroupCtxKey) != nil {
+		return r.Context().Value(GroupCtxKey).([]string)
 	}
 
 	return nil
@@ -216,7 +216,7 @@ func GetUserGroups(r *http.Request) []string {
 // The search is based on OR logic so if any one of the given strings
 // is found, function will return true
 func HasGroup(r *http.Request, searchGroups ...string) bool {
-	groupArray := r.Context().Value(groupCtxKey).([]string)
+	groupArray := r.Context().Value(GroupCtxKey).([]string)
 
 	for _, groupName := range groupArray {
 		for _, searchGroup := range searchGroups {

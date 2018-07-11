@@ -27,9 +27,9 @@ const (
 )
 
 var (
-	userCtxKey  = key{KeyName: "user"}
-	groupCtxKey = key{KeyName: "groupName"}
-	emailCtxKey = key{KeyName: "email"}
+	UserCtxKey           = key{KeyName: "user"}
+	GroupCtxKey          = key{KeyName: "groupName"}
+	MiddlewareUserCtxKey = key{KeyName: "middlewareUser"}
 )
 
 type key struct {
@@ -43,7 +43,8 @@ type IUser interface {
 	GetEmail() string
 }
 
-type email struct {
+type middlewareUser struct {
+	ID    int    `json:"id"`
 	Email string `json:"email"`
 }
 
@@ -110,24 +111,20 @@ func (m *Middleware) AuthMiddleware(w http.ResponseWriter, r *http.Request, next
 	session, _ := m.SessionStore.Get(r, m.UserSessionName)
 
 	if val, ok := session.Values[m.UserSessionName]; ok {
-		var user interface{}
-		var email email
-		err := json.Unmarshal(val.([]byte), &user)
+		//var user interface{}
+		var middlewareUser middlewareUser
+		userBytes := val.([]byte)
+
+		err := json.Unmarshal(val.([]byte), &middlewareUser)
 
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
 			return
 		}
 
-		err = json.Unmarshal(val.([]byte), &email)
-
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
-		ctx := context.WithValue(r.Context(), userCtxKey, &user)
-		ctxWithEmail := context.WithValue(ctx, emailCtxKey, email.Email)
+		ctx := context.WithValue(r.Context(), UserCtxKey, userBytes)
+		ctxWithEmail := context.WithValue(ctx, MiddlewareUserCtxKey, middlewareUser)
 		next(w, r.WithContext(ctxWithEmail))
 	} else {
 		next(w, r)
@@ -141,14 +138,14 @@ func (m *Middleware) AuthMiddleware(w http.ResponseWriter, r *http.Request, next
 // Middleware#CacheStore must be set in order to use
 // Middleware#AuthMiddleware must come before this middleware
 func (m *Middleware) GroupMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	if r.Context().Value(emailCtxKey) != nil {
+	if r.Context().Value(MiddlewareUserCtxKey) != nil {
 		var groupArray []string
-		email := r.Context().Value(emailCtxKey).(string)
+		user := r.Context().Value(MiddlewareUserCtxKey).(middlewareUser)
 
-		groups := fmt.Sprintf(GroupKey, email)
+		groups := fmt.Sprintf(GroupKey, user.Email)
 		groupBytes, _ := m.CacheStore.Get(groups)
 		json.Unmarshal(groupBytes, &groupArray)
-		ctx := context.WithValue(r.Context(), groupCtxKey, groupArray)
+		ctx := context.WithValue(r.Context(), GroupCtxKey, groupArray)
 		next(w, r.WithContext(ctx))
 	} else {
 		next(w, r)
@@ -169,13 +166,15 @@ func (m *Middleware) RoutingMiddleware(w http.ResponseWriter, r *http.Request, n
 	allowedPath := false
 
 	if r.Method != "OPTIONS" {
-		if r.Context().Value(emailCtxKey) != nil {
-			email := r.Context().Value(emailCtxKey).(string)
-			key := fmt.Sprintf(URLKey, email)
+		if r.Context().Value(MiddlewareUserCtxKey) != nil {
+			user := r.Context().Value(MiddlewareUserCtxKey).(middlewareUser)
+			key := fmt.Sprintf(URLKey, user.Email)
 			urlBytes, err := m.CacheStore.Get(key)
+			fmt.Printf("key: %s\n", key)
 
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte(err.Error()))
 				return
 			}
 
@@ -184,6 +183,7 @@ func (m *Middleware) RoutingMiddleware(w http.ResponseWriter, r *http.Request, n
 
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte(err.Error()))
 				return
 			}
 
@@ -289,7 +289,7 @@ func (m *middleware) AuthMiddleware(w http.ResponseWriter, r *http.Request, next
 			return
 		}
 
-		ctx := context.WithValue(r.Context(), userCtxKey, &user)
+		ctx := context.WithValue(r.Context(), UserCtxKey, &user)
 		next(w, r.WithContext(ctx))
 	} else {
 		next(w, r)
@@ -298,84 +298,84 @@ func (m *middleware) AuthMiddleware(w http.ResponseWriter, r *http.Request, next
 
 // GroupMiddleware is middleware used to add current user's groups (if logged in) to the context
 // of the request.  User session struct must implement IUser interface
-func (m *middleware) GroupMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	user := GetUser(r)
+// func (m *middleware) GroupMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
+// 	user := GetUser(r)
 
-	if user != nil {
-		var groupArray []string
-		currentUser := user.(IUser)
-		groups := fmt.Sprintf(GroupKey, currentUser.GetEmail())
-		groupBytes, _ := m.cacheStore.Get(groups)
-		json.Unmarshal(groupBytes, &groupArray)
-		ctx := context.WithValue(r.Context(), groupCtxKey, groupArray)
-		next(w, r.WithContext(ctx))
-	} else {
-		next(w, r)
-	}
-}
+// 	if user != nil {
+// 		var groupArray []string
+// 		currentUser := user.(IUser)
+// 		groups := fmt.Sprintf(GroupKey, currentUser.GetEmail())
+// 		groupBytes, _ := m.cacheStore.Get(groups)
+// 		json.Unmarshal(groupBytes, &groupArray)
+// 		ctx := context.WithValue(r.Context(), GroupCtxKey, groupArray)
+// 		next(w, r.WithContext(ctx))
+// 	} else {
+// 		next(w, r)
+// 	}
+// }
 
 // RoutingMiddleware is middleware used to indicate whether an incoming request is
 // authorized to go to certain urls based on authentication of a user's groups
 // The groups should come from cache and be deserialzed into an array of strings
 // and if current requested url matches any of the urls, they are allowed forward,
 // in not, we 404
-func (m *middleware) RoutingMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	rootPath := "/"
-	path := r.URL.Path
-	allowedPath := false
-	user := GetUser(r)
+// func (m *middleware) RoutingMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
+// 	rootPath := "/"
+// 	path := r.URL.Path
+// 	allowedPath := false
+// 	user := GetUser(r)
 
-	if r.Method != "OPTIONS" {
-		if user != nil {
-			currentUser := user.(IUser)
-			key := fmt.Sprintf(URLKey, currentUser.GetEmail())
-			urlBytes, err := m.cacheStore.Get(key)
+// 	if r.Method != "OPTIONS" {
+// 		if user != nil {
+// 			currentUser := user.(IUser)
+// 			key := fmt.Sprintf(URLKey, currentUser.GetEmail())
+// 			urlBytes, err := m.cacheStore.Get(key)
 
-			if err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				return
-			}
+// 			if err != nil {
+// 				w.WriteHeader(http.StatusInternalServerError)
+// 				return
+// 			}
 
-			var urls []string
-			err = json.Unmarshal(urlBytes, &urls)
+// 			var urls []string
+// 			err = json.Unmarshal(urlBytes, &urls)
 
-			if err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				return
-			}
+// 			if err != nil {
+// 				w.WriteHeader(http.StatusInternalServerError)
+// 				return
+// 			}
 
-			if path == rootPath {
-				allowedPath = true
-			}
+// 			if path == rootPath {
+// 				allowedPath = true
+// 			}
 
-			for _, url := range urls {
-				if strings.Contains(path, url) && url != rootPath {
-					allowedPath = true
-					break
-				}
-			}
+// 			for _, url := range urls {
+// 				if strings.Contains(path, url) && url != rootPath {
+// 					allowedPath = true
+// 					break
+// 				}
+// 			}
 
-		} else {
-			if path == rootPath {
-				allowedPath = true
-			} else {
-				for _, url := range m.anonRouting {
-					if strings.Contains(path, url) && url != rootPath {
-						allowedPath = true
-						break
-					}
-				}
-			}
-		}
+// 		} else {
+// 			if path == rootPath {
+// 				allowedPath = true
+// 			} else {
+// 				for _, url := range m.anonRouting {
+// 					if strings.Contains(path, url) && url != rootPath {
+// 						allowedPath = true
+// 						break
+// 					}
+// 				}
+// 			}
+// 		}
 
-		if !allowedPath {
-			w.WriteHeader(http.StatusForbidden)
-			w.Write([]byte("Not authorized to access url"))
-			return
-		}
+// 		if !allowedPath {
+// 			w.WriteHeader(http.StatusForbidden)
+// 			w.Write([]byte("Not authorized to access url"))
+// 			return
+// 		}
 
-		next(w, r)
-	} else {
-		next(w, r)
-	}
-}
+// 		next(w, r)
+// 	} else {
+// 		next(w, r)
+// 	}
+// }
