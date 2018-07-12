@@ -56,10 +56,11 @@ type InsertLogger interface {
 }
 
 type Middleware struct {
-	CacheStore      cacheutil.CacheStore
-	SessionStore    sessions.Store
-	DB              httputil.DBInterface
-	Inserter        InsertLogger
+	CacheStore   cacheutil.CacheStore
+	SessionStore sessions.Store
+	DB           httputil.DBInterface
+	// Inserter        InsertLogger
+	LogInserter     func(req *http.Request, payload []byte, db httputil.DBInterface) error
 	UserSessionName string
 	AnonRouting     []string
 }
@@ -89,9 +90,9 @@ func (m *Middleware) LogEntryMiddleware(w http.ResponseWriter, r *http.Request, 
 				panic("error inserting log into db")
 			}
 
-			m.Inserter.InsertLog(r, string(jsonBytes), m.DB)
+			m.LogInserter(r, jsonBytes, m.DB)
 		} else if rw.Status() == 0 || rw.Status() == 200 {
-			m.Inserter.InsertLog(r, "", m.DB)
+			m.LogInserter(r, nil, m.DB)
 		}
 	}
 }

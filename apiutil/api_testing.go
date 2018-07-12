@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -87,9 +88,18 @@ func RunTestCases(t *testing.T, testCases []TestCase) {
 	}
 }
 
-func GetJSONBuffer(item interface{}) bytes.Buffer {
-	var buffer bytes.Buffer
-	encoder := json.NewEncoder(&buffer)
-	encoder.Encode(&item)
-	return buffer
+// ResponseError is a wrapper function for a http#Response and handling errors
+func ResponseError(t *testing.T, res *http.Response, expectedStatus int, err error) {
+	if err != nil {
+		t.Fatalf("err on response: %s", err.Error())
+	} else {
+		if res.StatusCode != expectedStatus {
+			t.Errorf("Got %d error, should be %d\n", res.StatusCode, expectedStatus)
+
+			if res.Body != nil {
+				resErr, _ := ioutil.ReadAll(res.Body)
+				t.Errorf("Body response: %s\n", string(resErr))
+			}
+		}
+	}
 }

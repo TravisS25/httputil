@@ -1,6 +1,7 @@
 package apiutil
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -285,3 +286,27 @@ func PanicHandlerFunc(to []string, from, subject string, subSearchStrings []stri
 		}
 	}
 }
+
+// GetJSONBuffer takes interface and json encode it into a buffer and returns buffer
+func GetJSONBuffer(item interface{}) bytes.Buffer {
+	var buffer bytes.Buffer
+	encoder := json.NewEncoder(&buffer)
+	encoder.Encode(&item)
+	return buffer
+}
+
+// type request struct {
+// 	*http.Request
+// 	err error
+// }
+
+// func NewRequest(method, url string, reader io.Reader) *request {
+// 	req, err := http.NewRequest(method, url, reader)
+
+// 	return &request{
+// 		Request: req,
+// 		err:     err,
+// 	}
+// }
+
+// func(r *request)
