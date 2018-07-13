@@ -96,6 +96,7 @@ type Database struct {
 
 // Settings is the configuration settings for the app
 type Settings struct {
+	Prod           bool            `yaml:"prod"`
 	Domain         string          `yaml:"domain"`
 	ClientDomain   string          `yaml:"client_domain"`
 	CSRF           string          `yaml:"csrf"`

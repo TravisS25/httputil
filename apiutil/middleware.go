@@ -171,7 +171,6 @@ func (m *Middleware) RoutingMiddleware(w http.ResponseWriter, r *http.Request, n
 			user := r.Context().Value(MiddlewareUserCtxKey).(middlewareUser)
 			key := fmt.Sprintf(URLKey, user.Email)
 			urlBytes, err := m.CacheStore.Get(key)
-			fmt.Printf("key: %s\n", key)
 
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
