@@ -1,12 +1,15 @@
 package queryutil
 
 import (
+	"database/sql/driver"
 	"encoding/json"
 	"fmt"
 	"net/url"
 	"regexp"
 	"strconv"
 
+	"github.com/TravisS25/httputil"
+	"github.com/TravisS25/httputil/dbutil"
 	"github.com/knq/snaker"
 
 	"github.com/jmoiron/sqlx"
@@ -218,25 +221,25 @@ func WhereFilter(
 // DecodeSort, ApplyOrdering and ApplyLimit
 //
 // r:
-// Struct that implements "FormValue(string)string", which will
-// generally be http.Request
+// 		Struct that implements "FormValue(string)string", which will
+// 		generally be http.Request
 // query:
-// The query to be modified
+// 		The query to be modified
 // takeLimit:
-// Applies limit to the number of returned rows
-// If 0, no limit is set
+// 		Applies limit to the number of returned rows
+// 		If 0, no limit is set
 // bindVar:
-// The binding var used for query eg. sql.DOLLAR
+// 		The binding var used for query eg. sql.DOLLAR
 // prependVars:
-// Slice of values that should be used that do not apply
-// to modified query.  See example for better explanation
+// 		Slice of values that should be used that do not apply
+// 		to modified query.  See example for better explanation
 // fieldNames:
-// Slice of field names that the filter can apply to
-// These field names should be the name of database fields.
-// Reason for this is to avoid sql injection as field names
-// can't be used a placeholders like values can in a query
-// so if any given filter name does not match any of the field
-// names in the slice, then an error will be thrown
+// 		Slice of field names that the filter can apply to
+// 		These field names should be the name of database fields.
+// 		Reason for this is to avoid sql injection as field names
+// 		can't be used as placeholders like values can in a query
+// 		so if any given filter name does not match any of the field
+// 		names in the slice, then an error will be thrown
 func ApplyAll(
 	r FormRequest,
 	query *string,
@@ -246,6 +249,7 @@ func ApplyAll(
 	fieldNames []string,
 ) ([]interface{}, error) {
 	var err error
+	var intTake uint64
 	filters := make([]*Filter, 0)
 	varReplacements := make([]interface{}, 0)
 	take := r.FormValue("take")
@@ -253,7 +257,15 @@ func ApplyAll(
 	filtersEncoded := r.FormValue("filters")
 	sortEncoded := r.FormValue("sort")
 
-	intTake, err := strconv.ParseUint(take, 10, 32)
+	if take == "" {
+		intTake = uint64(10)
+	} else {
+		intTake, err = strconv.ParseUint(take, 10, 32)
+	}
+
+	if skip == "" {
+		skip = "0"
+	}
 
 	if err != nil {
 		return nil, err
@@ -306,9 +318,105 @@ func ApplyAll(
 	return varReplacements, nil
 }
 
+// GetFilteredResults is a wrapper function for getting a filtered query from
+// ApplyAll function along with getting a count
+func GetFilteredResults(
+	r FormRequest,
+	query *string,
+	countQuery *string,
+	takeLimit uint64,
+	bindVar int,
+	prependVars []interface{},
+	fieldNames []string,
+	db httputil.DBInterface,
+) (httputil.Rower, int, error) {
+	replacements, err := ApplyAll(
+		r,
+		query,
+		takeLimit,
+		bindVar,
+		nil,
+		fieldNames,
+	)
+
+	if err != nil {
+		return nil, 0, err
+	}
+
+	results, err := db.Query(
+		*query,
+		replacements...,
+	)
+
+	if err != nil {
+		return nil, 0, err
+	}
+
+	countReplacements, err := WhereFilter(
+		r,
+		countQuery,
+		bindVar,
+		nil,
+		fieldNames,
+	)
+
+	if err != nil {
+		return nil, 0, err
+	}
+
+	countResults, err := dbutil.QueryCount(
+		db,
+		*countQuery,
+		countReplacements...,
+	)
+
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return results, countResults.Total, nil
+}
+
 // CountSelect take column string and applies count select
 func CountSelect(column string) string {
 	return fmt.Sprintf("count(%s) as total", column)
+}
+
+type GeneralJSON map[string]interface{}
+
+func (g GeneralJSON) Value() (driver.Value, error) {
+	j, err := json.Marshal(g)
+	return j, err
+}
+
+func (g *GeneralJSON) Scan(src interface{}) error {
+	source, ok := src.([]byte)
+	if !ok {
+		return errors.New("Type assertion .([]byte) failed.")
+	}
+
+	var i interface{}
+	err := json.Unmarshal(source, &i)
+	if err != nil {
+		return err
+	}
+
+	*g, ok = i.(map[string]interface{})
+	if !ok {
+		arr, ok := i.([]interface{})
+
+		if ok {
+			newV := make(map[string]interface{})
+			newV["array"] = arr
+			*g = newV
+		} else {
+			return errors.New("Not valid json")
+		}
+
+		// return errors.New("Type assertion .(map[string]interface{}) failed.")
+	}
+
+	return nil
 }
 
 func replaceFields(filters []*Filter, fieldNames []string) ([]interface{}, error) {

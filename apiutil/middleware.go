@@ -56,13 +56,13 @@ type InsertLogger interface {
 }
 
 type Middleware struct {
-	CacheStore   cacheutil.CacheStore
-	SessionStore sessions.Store
-	DB           httputil.DBInterface
-	// Inserter        InsertLogger
-	LogInserter     func(req *http.Request, payload []byte, db httputil.DBInterface) error
+	CacheStore      cacheutil.CacheStore
+	SessionStore    sessions.Store
+	DB              httputil.DBInterface
+	LogInserter     func(res http.ResponseWriter, req *http.Request, payload []byte, db httputil.DBInterface) error
 	UserSessionName string
-	AnonRouting     []string
+
+	AnonRouting []string
 }
 
 // LogEntryMiddleware is used for logging a user modifying actions such as put, post, and delete
@@ -87,12 +87,12 @@ func (m *Middleware) LogEntryMiddleware(w http.ResponseWriter, r *http.Request, 
 			jsonBytes, err := json.Marshal(payload)
 
 			if err != nil {
-				panic("error inserting log into db")
+				panic("Could not marshal payload")
 			}
 
-			m.LogInserter(r, jsonBytes, m.DB)
+			m.LogInserter(w, r, jsonBytes, m.DB)
 		} else if rw.Status() == 0 || rw.Status() == 200 {
-			m.LogInserter(r, nil, m.DB)
+			m.LogInserter(w, r, nil, m.DB)
 		}
 	}
 }
