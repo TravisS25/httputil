@@ -96,17 +96,7 @@ func HasFormErrors(w http.ResponseWriter, r *http.Request, err error) bool {
 
 // SendPayload is a wrapper for converting the payload map parameter into json and sending to the client
 // If addUserContext parameter is set to true, the json sent back will also include user and groups ctx
-func SendPayload(w http.ResponseWriter, r *http.Request, addUserContext bool, payload map[string]interface{}) {
-	if addUserContext {
-		if user := GetUser(r); user != nil {
-			payload["user"] = user
-
-			if r.Context().Value(GroupCtxKey) != nil {
-				payload["groups"] = r.Context().Value(GroupCtxKey).([]string)
-			}
-		}
-	}
-
+func SendPayload(w http.ResponseWriter, r *http.Request, payload map[string]interface{}) {
 	jsonString, err := json.Marshal(payload)
 
 	if err != nil {
