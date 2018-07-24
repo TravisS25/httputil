@@ -84,10 +84,7 @@ func HasFormErrors(w http.ResponseWriter, r *http.Request, err error) bool {
 		CheckError(err, "")
 		payload := err.(validation.Errors)
 		w.WriteHeader(http.StatusNotAcceptable)
-		w.Write([]byte(payload.Error()))
-		// SendPayload(w, r, false, map[string]interface{}{
-		// 	"errors": payload,
-		// })
+		SendPayload(w, r, payload)
 		return true
 	}
 
@@ -96,7 +93,7 @@ func HasFormErrors(w http.ResponseWriter, r *http.Request, err error) bool {
 
 // SendPayload is a wrapper for converting the payload map parameter into json and sending to the client
 // If addUserContext parameter is set to true, the json sent back will also include user and groups ctx
-func SendPayload(w http.ResponseWriter, r *http.Request, payload map[string]interface{}) {
+func SendPayload(w http.ResponseWriter, r *http.Request, payload interface{}) {
 	jsonString, err := json.Marshal(payload)
 
 	if err != nil {
