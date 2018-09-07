@@ -17,28 +17,42 @@ import (
 	redistore "gopkg.in/boj/redistore.v1"
 )
 
-func SetFormValidator(formValidation *formutil.FormValidation, db httputil.Querier, cache cacheutil.CacheStore) {
+func GetFormValidator(db httputil.Querier, cache cacheutil.CacheStore) *formutil.FormValidation {
+	formValidation := &formutil.FormValidation{}
 	formValidation.SetQuerier(db)
 	formValidation.SetCache(cache)
+	return formValidation
 }
 
-func SetConfigSettings(conf *confutil.Settings, envVar string) {
-	conf = confutil.ConfigSettings(envVar)
-}
+// func SetConfigSettings(conf *confutil.Settings, envVar string) {
+// 	conf = confutil.ConfigSettings(envVar)
+// 	fmt.Println(conf.Cache.Redis.Address)
+// }
 
-func SetCacheSettings(conf *confutil.Settings, cache cacheutil.CacheStore) {
+func getCacheSettings(conf *confutil.Settings) *cacheutil.ClientCache {
 	if conf.Cache.Redis != nil {
 		redisClient := redis.NewClient(&redis.Options{
 			Addr:     conf.Cache.Redis.Address,
 			Password: conf.Cache.Redis.Password,
 			DB:       conf.Cache.Redis.DB,
 		})
-		cache = cacheutil.NewClientCache(redisClient)
+		return cacheutil.NewClientCache(redisClient)
 	}
+
+	return nil
 }
 
-func SetDB(conf *confutil.Settings, isProd bool, db *dbutil.DB) {
+func GetCacheSettings(conf *confutil.Settings) cacheutil.CacheStore {
+	return getCacheSettings(conf)
+}
+
+func GetCacheSettingsV2(conf *confutil.Settings) cacheutil.CacheStoreV2 {
+	return getCacheSettings(conf)
+}
+
+func GetDB(conf *confutil.Settings, isProd bool) (*dbutil.DB, error) {
 	var err error
+	var db *dbutil.DB
 
 	if isProd {
 		db, err = dbutil.NewDB(dbutil.DBConfig{
@@ -63,10 +77,13 @@ func SetDB(conf *confutil.Settings, isProd bool, db *dbutil.DB) {
 	if err != nil {
 		panic(err)
 	}
+
+	return db, err
 }
 
-func SetStoreSettings(conf *confutil.Settings, store sessions.Store) {
+func GetStoreSettings(conf *confutil.Settings) (sessions.Store, error) {
 	var err error
+	var store sessions.Store
 
 	if conf.Store.Redis != nil {
 		store, err = redistore.NewRediStore(
@@ -93,9 +110,13 @@ func SetStoreSettings(conf *confutil.Settings, store sessions.Store) {
 	if err != nil {
 		panic(err)
 	}
+
+	return store, err
 }
 
-func SetMessenger(conf *confutil.Settings, mailer mailutil.SendMessage) {
+func GetMessenger(conf *confutil.Settings) mailutil.SendMessage {
+	var mailer mailutil.SendMessage
+
 	if conf.EmailConfig.TestMode {
 		mailer = mailutil.NewMailMessenger(mailutil.MailerConfig{
 			Host:     conf.EmailConfig.TestEmail.Host,
@@ -111,12 +132,14 @@ func SetMessenger(conf *confutil.Settings, mailer mailutil.SendMessage) {
 			Password: conf.EmailConfig.LiveEmail.Password,
 		})
 	}
+
+	return mailer
 }
 
-func SetTemplate(conf *confutil.Settings, templ *template.Template) {
-	templ = template.Must(template.ParseGlob(conf.TemplatesDir))
+func GetTemplate(conf *confutil.Settings) *template.Template {
+	return template.Must(template.ParseGlob(conf.TemplatesDir))
 }
 
-func SetCSRF(conf *confutil.Settings, token func(http.Handler) http.Handler, cookieName string) {
-	token = csrf.Protect([]byte(conf.CSRF), csrf.Secure(conf.HTTPS), csrf.CookieName(cookieName))
+func GetCSRF(conf *confutil.Settings, cookieName string) func(http.Handler) http.Handler {
+	return csrf.Protect([]byte(conf.CSRF), csrf.Secure(conf.HTTPS), csrf.CookieName(cookieName))
 }

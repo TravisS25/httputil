@@ -10,6 +10,12 @@ import (
 	"testing"
 )
 
+const (
+	TokenHeader     = "X-CSRF-TOKEN"
+	CookieHeader    = "Cookie"
+	SetCookieHeader = "Set-Cookie"
+)
+
 // TestCase is config struct used in conjunction with
 // the RunTestCases function
 type TestCase struct {
@@ -102,4 +108,42 @@ func ResponseError(t *testing.T, res *http.Response, expectedStatus int, err err
 			}
 		}
 	}
+}
+
+func LoginUser(email, password, loginURL string, loginForm interface{}, ts *httptest.Server) (string, error) {
+	client := &http.Client{}
+
+	baseURL := ts.URL
+	fullURL := baseURL + loginURL
+
+	req, err := http.NewRequest("GET", fullURL, nil)
+
+	if err != nil {
+		return "", err
+	}
+
+	res, err := client.Do(req)
+
+	if err != nil {
+		return "", err
+	}
+
+	token := res.Header.Get(TokenHeader)
+	csrf := res.Header.Get(SetCookieHeader)
+	buffer := GetJSONBuffer(loginForm)
+	req, err = http.NewRequest("POST", fullURL, &buffer)
+
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set(TokenHeader, token)
+	req.Header.Set(CookieHeader, csrf)
+	res, err = client.Do(req)
+
+	if err != nil {
+		return "", err
+	}
+
+	return res.Header.Get(SetCookieHeader), nil
 }

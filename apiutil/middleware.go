@@ -48,6 +48,11 @@ type middlewareUser struct {
 	Email string `json:"email"`
 }
 
+// type MiddlewareUser struct {
+// 	ID    int    `json:"id"`
+// 	Email string `json:"email"`
+// }
+
 // InsertLogger is interface that allows to log user's actions of
 // post, put, or delete request
 // This is used in conjunction with Middleware#LogEntryMiddleware
