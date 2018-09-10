@@ -17,7 +17,7 @@ type CacheStore interface {
 
 type CacheStoreV2 interface {
 	CacheStore
-	HasKey(keyString string, keyIDs ...string) bool
+	HasKey(key string) bool
 }
 
 // ClientCache is default struct that implements the CacheStore interface
@@ -53,9 +53,19 @@ func (c *ClientCache) Del(keys ...string) {
 // HasKey takes keyString and any id identifiers and checks if the key exists
 // in cache server
 // Returns true if it does, false otherwise
-func (c *ClientCache) HasKey(keyString string, keyIDs ...string) bool {
-	key := fmt.Sprintf(keyString, keyIDs)
-	_, err := c.Client.Get(key).Bytes()
+// func (c *ClientCache) HasKey(keyString string, keyIDs ...interface{}) bool {
+// 	key := ConcatenateCacheKey(keyString, keyIDs...)
+// 	_, err := c.Client.Get(key).Bytes()
+
+// 	if err != nil {
+// 		return false
+// 	}
+
+// 	return true
+// }
+
+func (c *ClientCache) HasKey(key string) bool {
+	_, err := c.Get(key)
 
 	if err != nil {
 		return false
@@ -64,8 +74,8 @@ func (c *ClientCache) HasKey(keyString string, keyIDs ...string) bool {
 	return true
 }
 
-func ConcatenateCacheKey(keyString string, valueStrings ...string) string {
-	return fmt.Sprintf(keyString, valueStrings)
+func ConcatenateCacheKey(keyString string, values ...interface{}) string {
+	return fmt.Sprintf(keyString, values...)
 }
 
 // func SetCacheForIDs(cache CacheStore, values interface{}, variableName, keyString string) error {

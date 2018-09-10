@@ -1,8 +1,10 @@
-package formutil
+package formtest
 
 import (
 	"fmt"
 	"testing"
+
+	"github.com/TravisS25/httputil/formutil"
 
 	validation "github.com/go-ozzo/ozzo-validation"
 )
@@ -18,7 +20,7 @@ type FormTestCase struct {
 	ValidationErrors map[string]string
 
 	// Validator is interface that is responsible for validating "Form" variable - Required
-	FormValidator Validator
+	FormValidator formutil.Validator
 
 	// Value that will be validated against.  Whatever struct that implements
 	// Validator should properly cast this to whatever form you are validating - Required
@@ -37,6 +39,8 @@ type FormTestCase struct {
 	// PostExecute can be used to exec some logic that you may need to run inbetween test cases
 	// such as clean up logic before the next test is run - Optional
 	PostExecute func()
+
+	InternalError string
 }
 
 func RunFormTests(t *testing.T, formTests []FormTestCase) {
@@ -56,7 +60,9 @@ func RunFormTests(t *testing.T, formTests []FormTestCase) {
 				validationErrors, ok = err.(validation.Errors)
 
 				if !ok {
-					t.Errorf(err.Error())
+					if formTest.InternalError != err.Error() {
+						t.Errorf("Internal error: %s", err.Error())
+					}
 				} else {
 					for key, expectedVal := range formTest.ValidationErrors {
 						if val, ok := validationErrors[key]; ok {

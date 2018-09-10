@@ -82,9 +82,14 @@ func ServerError(w http.ResponseWriter, err error, customMessage string) {
 func HasFormErrors(w http.ResponseWriter, r *http.Request, err error) bool {
 	if err != nil {
 		CheckError(err, "")
-		payload := err.(validation.Errors)
-		w.WriteHeader(http.StatusNotAcceptable)
-		SendPayload(w, r, payload)
+		payload, ok := err.(validation.Errors)
+
+		if ok {
+			w.WriteHeader(http.StatusNotAcceptable)
+			SendPayload(w, r, payload)
+		} else {
+			w.WriteHeader(http.StatusInternalServerError)
+		}
 		return true
 	}
 

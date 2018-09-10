@@ -1,4 +1,4 @@
-package apiutil
+package apitest
 
 import (
 	"bytes"
@@ -10,6 +10,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+
+	"github.com/TravisS25/httputil/apiutil"
 )
 
 const (
@@ -132,7 +134,7 @@ func LoginUser(email, password, loginURL string, loginForm interface{}, ts *http
 
 	token := res.Header.Get(TokenHeader)
 	csrf := res.Header.Get(SetCookieHeader)
-	buffer := GetJSONBuffer(loginForm)
+	buffer := apiutil.GetJSONBuffer(loginForm)
 	req, err = http.NewRequest("POST", fullURL, &buffer)
 
 	if err != nil {

@@ -1,15 +1,18 @@
 package formutil
 
-var (
-	formValdiation      Form
-	formCacheValidation FormCache
-)
+import "testing"
 
 type TestFormCacheValidation struct {
 	Foo string `json:"foo"`
 	Boo string `json:"boo"`
 
 	FormValidation
+}
+
+func TestValidateDateRule(t *testing.T) {
+	v := validateDateRule{}
+	v.Validate(nil)
+	t.Errorf("boom")
 }
 
 // func (t TestFormCacheValidation) Validate(item interface{}) error {

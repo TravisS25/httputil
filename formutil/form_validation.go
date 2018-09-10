@@ -7,9 +7,12 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/TravisS25/httputil"
 	"github.com/TravisS25/httputil/cacheutil"
+	"github.com/TravisS25/httputil/timeutil"
+	"github.com/go-ozzo/ozzo-validation"
 	"github.com/jmoiron/sqlx"
 )
 
@@ -26,6 +29,12 @@ const (
 	errUnique       = "%s already exists"
 	errRequired     = "%s is required"
 	errDoesNotExist = "%s does not exist"
+)
+
+const (
+	InvalidDateFormat = "Invalid date format"
+	InvalidFutureDate = "Date can't be after current date/time"
+	InvalidPastDate   = "Date can't be before current date/time"
 )
 
 //----------------------- INTERFACES ------------------------------
@@ -133,6 +142,32 @@ func (f *FormValidation) IsValid(isValid bool) *validRule {
 	return &validRule{isValid: isValid, message: "Not Valid"}
 }
 
+// ValidateDate verifies whether a date string matches the passed in
+// layout format
+// If a user wishes, they can also verify whether the given date is
+// allowed to be a past or future date of the current time
+// The timezone parameter converts given time to compare to current
+// time if you choose to
+// If no timezone is passed, UTC is used by default
+// If user does not want to compare time, both bool parameters
+// should be true
+// Will raise validation.InternalError if both bool parameters are false
+func (f *FormValidation) ValidateDate(
+	// dateType int,
+	layout,
+	timezone string,
+	canBeFuture,
+	canBePast bool,
+) *validateDateRule {
+	return &validateDateRule{
+		// dateType:    dateType,
+		layout:      layout,
+		timezone:    timezone,
+		canBeFuture: canBeFuture,
+		canBePast:   canBePast,
+	}
+}
+
 // RequiredError is wrapper for the field parameter
 // Returns field name with custom required message
 func (f *FormValidation) RequiredError(field string) string {
@@ -214,12 +249,103 @@ func (f *FormValidation) Exists(query string, args ...interface{}) bool {
 	return true
 }
 
+type validateDateRule struct {
+	// dateType      int
+	layout        string
+	timezone      string
+	canBeFuture   bool
+	canBePast     bool
+	internalError validation.InternalError
+}
+
+func (v *validateDateRule) Validate(value interface{}) error {
+	if v.internalError != nil {
+		return v.internalError
+	}
+
+	var currentTime *time.Time
+	var err error
+	var message string
+	var dateValue string
+
+	switch value.(type) {
+	case string:
+		dateValue = value.(string)
+		fmt.Println("made to string")
+	case *string:
+		fmt.Println("made to *string")
+		temp := value.(*string)
+
+		if temp == nil {
+			fmt.Println("niiiiiil")
+			return nil
+		}
+
+		dateValue = *temp
+	default:
+		return validation.NewInternalError(errors.New("Input must be string or *string"))
+	}
+
+	if v.timezone != "" {
+		currentTime, err = timeutil.GetCurrentLocalDateTimeInUTC(v.timezone)
+
+		if err != nil {
+			return validation.NewInternalError(err)
+		}
+	} else {
+		current := time.Now().UTC()
+		currentTime = &current
+	}
+
+	dateTime, err := time.Parse(v.layout, dateValue)
+
+	if err != nil {
+		return errors.New(InvalidDateFormat)
+	}
+
+	if v.canBeFuture && v.canBePast {
+		message = ""
+	} else if v.canBeFuture {
+		if dateTime.Before(*currentTime) {
+			message = "Date can't be before current date/time"
+		}
+	} else if v.canBePast {
+		if dateTime.After(*currentTime) {
+			message = "Date can't be after current date/time"
+		}
+	} else {
+		return validation.NewInternalError(
+			errors.New("Both 'canBeFuture and 'canBePast' can't be false"),
+		)
+	}
+
+	if message != "" {
+		return errors.New(message)
+	}
+
+	return nil
+}
+
+func (v *validateDateRule) Error(message string) *validateDateRule {
+	return &validateDateRule{
+		layout:        v.layout,
+		timezone:      v.timezone,
+		canBeFuture:   v.canBeFuture,
+		canBePast:     v.canBePast,
+		internalError: v.internalError,
+	}
+}
+
 type validRule struct {
-	isValid bool
-	message string
+	isValid       bool
+	internalError validation.InternalError
+	message       string
 }
 
 func (v *validRule) Validate(value interface{}) error {
+	if v.internalError != nil {
+		return v.internalError
+	}
 	if !v.isValid {
 		return errors.New(v.message)
 	}

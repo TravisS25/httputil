@@ -1,0 +1,5 @@
+package apitest
+
+func ExampleRunTestCases() {
+
+}
