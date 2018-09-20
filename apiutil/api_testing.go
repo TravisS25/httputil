@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"io/ioutil"
 	"mime/multipart"
 	"net/http"
@@ -38,6 +39,9 @@ type TestCase struct {
 	Form interface{}
 	// Handler is the request handler that you which to test
 	Handler http.Handler
+	// ValidResponse allows user to take in response from api end
+	// and determine if the given response is the expected one
+	ValidResponse func(bodyResponse io.Reader) (bool, error)
 }
 
 // RunTestCases takes the given list of TestCase structs and loops through
@@ -90,6 +94,18 @@ func RunTestCases(t *testing.T, testCases []TestCase) {
 			if testCase.ExpectedBody != "" {
 				if testCase.ExpectedBody != rr.Body.String() {
 					v.Errorf("got body %s; want %s\n", rr.Body.String(), testCase.ExpectedBody)
+				}
+			}
+
+			if testCase.ValidResponse != nil {
+				isValid, err := testCase.ValidResponse(rr.Body)
+
+				if !isValid {
+					v.Errorf("ValidRepsonse function returned false\n")
+				}
+
+				if err != nil {
+					v.Errorf("ValidRepsonse function returned err: %s\n", err.Error())
 				}
 			}
 		})

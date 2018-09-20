@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"io/ioutil"
 	"mime/multipart"
 	"net/http"
@@ -40,6 +43,19 @@ type TestCase struct {
 	Form interface{}
 	// Handler is the request handler that you which to test
 	Handler http.Handler
+	// ValidResponse allows user to take in response from api end
+	// and determine if the given response is the expected one
+	//ValidResponse func(bodyResponse io.Reader) (bool, error)
+	ValidateResponse *Response
+}
+
+type intIDResponse struct {
+	ID int `json:"id"`
+}
+
+type Response struct {
+	ExpectedResult       interface{}
+	ValidateResponseFunc func(bodyResponse io.Reader, expectedResult interface{}) error
 }
 
 // RunTestCases takes the given list of TestCase structs and loops through
@@ -94,8 +110,98 @@ func RunTestCases(t *testing.T, testCases []TestCase) {
 					v.Errorf("got body %s; want %s\n", rr.Body.String(), testCase.ExpectedBody)
 				}
 			}
+
+			if testCase.ValidateResponse != nil {
+				err = testCase.ValidateResponse.ValidateResponseFunc(
+					rr.Body,
+					testCase.ValidateResponse.ExpectedResult,
+				)
+
+				if err != nil {
+					v.Errorf(err.Error())
+				}
+			}
+
+			// if testCase.ValidResponse != nil {
+			// 	isValid, err := testCase.ValidResponse(rr.Body)
+
+			// 	if err != nil {
+			// 		v.Errorf("ValidRepsonse function returned err: %s\n", err.Error())
+			// 	} else {
+			// 		if !isValid {
+			// 			v.Errorf("ValidRepsonse function returned false\n")
+			// 		}
+			// 	}
+			// }
 		})
 	}
+}
+
+func ValidateIntArrayResponse(bodyResponse io.Reader, expectedResult interface{}) error {
+	var resultIDs []intIDResponse
+	expectedIDs, ok := expectedResult.([]int)
+	foundResult := false
+	errorMessage := "Results values: %v; expected results: %v\n"
+
+	if !ok {
+		return errors.New("Expected result should be []int")
+	}
+
+	err := SetJSONFromResponse(bodyResponse, &resultIDs)
+
+	if err != nil {
+		return err
+	}
+
+	if len(resultIDs) != len(expectedIDs) {
+		errorMessage := fmt.Sprintf(
+			errorMessage,
+			resultIDs,
+			expectedIDs,
+		)
+		return errors.New(errorMessage)
+	}
+
+	for _, m := range expectedIDs {
+		for _, v := range resultIDs {
+			if m == v.ID {
+				foundResult = true
+				break
+			}
+		}
+
+		if foundResult == false {
+			errorMessage := fmt.Sprintf(
+				errorMessage,
+				resultIDs,
+				expectedIDs,
+			)
+			return errors.New(errorMessage)
+		}
+
+		foundResult = false
+	}
+
+	return nil
+
+}
+
+// SetJSONFromResponse takes io.Reader which will generally be a response from
+// api endpoint and applies the json representation to the passed interface
+func SetJSONFromResponse(bodyResponse io.Reader, item interface{}) error {
+	response, err := ioutil.ReadAll(bodyResponse)
+
+	if err != nil {
+		return err
+	}
+
+	err = json.Unmarshal(response, &item)
+
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // ResponseError is a wrapper function for a http#Response and handling errors
@@ -114,6 +220,8 @@ func ResponseError(t *testing.T, res *http.Response, expectedStatus int, err err
 	}
 }
 
+// LoginUser takes email and password along with login url and form information
+// to use to make a POST request to login url and if successful, return user cookie
 func LoginUser(email, password, loginURL string, loginForm interface{}, ts *httptest.Server) (string, error) {
 	client := &http.Client{}
 
@@ -152,7 +260,7 @@ func LoginUser(email, password, loginURL string, loginForm interface{}, ts *http
 	return res.Header.Get(SetCookieHeader), nil
 }
 
-// Creates a new file upload http request with optional extra params
+// NewFileUploadRequest creates a new file upload http request with optional extra params
 func NewFileUploadRequest(uri string, params map[string]string, paramName, path string) (*http.Request, error) {
 	file, err := os.Open(path)
 	if err != nil {

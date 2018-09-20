@@ -79,14 +79,14 @@ func ServerError(w http.ResponseWriter, err error, customMessage string) {
 // HasFormErrors determines if err is nil and if it is, convert it to json form
 // with which form fields have errors and send to client with 406 error
 // If err is not nil, returns true else false
-func HasFormErrors(w http.ResponseWriter, r *http.Request, err error) bool {
+func HasFormErrors(w http.ResponseWriter, err error) bool {
 	if err != nil {
 		CheckError(err, "")
 		payload, ok := err.(validation.Errors)
 
 		if ok {
 			w.WriteHeader(http.StatusNotAcceptable)
-			SendPayload(w, r, payload)
+			SendPayload(w, payload)
 		} else {
 			w.WriteHeader(http.StatusInternalServerError)
 		}
@@ -97,8 +97,8 @@ func HasFormErrors(w http.ResponseWriter, r *http.Request, err error) bool {
 }
 
 // SendPayload is a wrapper for converting the payload map parameter into json and sending to the client
-// If addUserContext parameter is set to true, the json sent back will also include user and groups ctx
-func SendPayload(w http.ResponseWriter, r *http.Request, payload interface{}) {
+// If addUserContext parameter is set to true, the json sent back
+func SendPayload(w http.ResponseWriter, payload interface{}) {
 	jsonString, err := json.Marshal(payload)
 
 	if err != nil {

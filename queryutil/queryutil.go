@@ -261,6 +261,10 @@ func ApplyAll(
 		intTake = uint64(10)
 	} else {
 		intTake, err = strconv.ParseUint(take, 10, 32)
+
+		if err != nil {
+			return nil, errors.New(err.Error())
+		}
 	}
 
 	if skip == "" {
@@ -310,10 +314,15 @@ func ApplyAll(
 		ApplyOrdering(query, sort)
 	}
 
-	ApplyLimit(query)
-	varReplacements = append(varReplacements, take, skip)
+	if intTake != uint64(0) {
+		ApplyLimit(query)
+		varReplacements = append(varReplacements, take, skip)
+	}
+
+	fmt.Printf("parameters: %v\n", varReplacements)
 	newQuery := sqlx.Rebind(bindVar, *query)
 	*query = newQuery
+	fmt.Printf("query here: %s\n", *query)
 
 	return varReplacements, nil
 }
@@ -335,11 +344,12 @@ func GetFilteredResults(
 		query,
 		takeLimit,
 		bindVar,
-		nil,
+		prependVars,
 		fieldNames,
 	)
 
 	if err != nil {
+		fmt.Print("error 1")
 		return nil, 0, err
 	}
 
@@ -349,6 +359,7 @@ func GetFilteredResults(
 	)
 
 	if err != nil {
+		fmt.Print("error 2")
 		return nil, 0, err
 	}
 
@@ -356,11 +367,12 @@ func GetFilteredResults(
 		r,
 		countQuery,
 		bindVar,
-		nil,
+		prependVars,
 		fieldNames,
 	)
 
 	if err != nil {
+		fmt.Print("error 3")
 		return nil, 0, err
 	}
 
@@ -371,6 +383,7 @@ func GetFilteredResults(
 	)
 
 	if err != nil {
+		fmt.Print("error 4")
 		return nil, 0, err
 	}
 

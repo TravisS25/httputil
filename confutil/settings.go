@@ -66,7 +66,7 @@ type StoreConfig struct {
 }
 
 type CacheConfig struct {
-	Redis *RedisCache
+	Redis *RedisCache `yaml:"redis"`
 }
 
 // Stripe is config struct to set up stripe in app
