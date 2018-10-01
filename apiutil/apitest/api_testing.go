@@ -21,6 +21,8 @@ const (
 	TokenHeader     = "X-CSRF-TOKEN"
 	CookieHeader    = "Cookie"
 	SetCookieHeader = "Set-Cookie"
+
+	ResponseErrorMessage = "Result values: %v;\n expected results: %v\n"
 )
 
 // TestCase is config struct used in conjunction with
@@ -46,11 +48,16 @@ type TestCase struct {
 	// ValidResponse allows user to take in response from api end
 	// and determine if the given response is the expected one
 	//ValidResponse func(bodyResponse io.Reader) (bool, error)
-	ValidateResponse *Response
+	ValidateResponse Response
 }
 
 type intIDResponse struct {
 	ID int `json:"id"`
+}
+
+type filteredIntIDResponse struct {
+	Data  []intIDResponse `json:"data"`
+	Count int             `json:"count"`
 }
 
 type Response struct {
@@ -111,7 +118,7 @@ func RunTestCases(t *testing.T, testCases []TestCase) {
 				}
 			}
 
-			if testCase.ValidateResponse != nil {
+			if testCase.ValidateResponse.ValidateResponseFunc != nil {
 				err = testCase.ValidateResponse.ValidateResponseFunc(
 					rr.Body,
 					testCase.ValidateResponse.ExpectedResult,
@@ -121,69 +128,109 @@ func RunTestCases(t *testing.T, testCases []TestCase) {
 					v.Errorf(err.Error())
 				}
 			}
-
-			// if testCase.ValidResponse != nil {
-			// 	isValid, err := testCase.ValidResponse(rr.Body)
-
-			// 	if err != nil {
-			// 		v.Errorf("ValidRepsonse function returned err: %s\n", err.Error())
-			// 	} else {
-			// 		if !isValid {
-			// 			v.Errorf("ValidRepsonse function returned false\n")
-			// 		}
-			// 	}
-			// }
 		})
 	}
 }
 
-func ValidateIntArrayResponse(bodyResponse io.Reader, expectedResult interface{}) error {
-	var resultIDs []intIDResponse
+func validateIDResponse(bodyResponse io.Reader, result interface{}, expectedResult interface{}) error {
 	expectedIDs, ok := expectedResult.([]int)
 	foundResult := false
-	errorMessage := "Results values: %v; expected results: %v\n"
 
 	if !ok {
 		return errors.New("Expected result should be []int")
 	}
 
-	err := SetJSONFromResponse(bodyResponse, &resultIDs)
+	switch result.(type) {
+	case []intIDResponse:
+		convertedResults := result.([]intIDResponse)
+		err := SetJSONFromResponse(bodyResponse, &convertedResults)
 
-	if err != nil {
-		return err
-	}
-
-	if len(resultIDs) != len(expectedIDs) {
-		errorMessage := fmt.Sprintf(
-			errorMessage,
-			resultIDs,
-			expectedIDs,
-		)
-		return errors.New(errorMessage)
-	}
-
-	for _, m := range expectedIDs {
-		for _, v := range resultIDs {
-			if m == v.ID {
-				foundResult = true
-				break
-			}
+		if err != nil {
+			return err
 		}
 
-		if foundResult == false {
+		if len(convertedResults) != len(expectedIDs) {
 			errorMessage := fmt.Sprintf(
-				errorMessage,
-				resultIDs,
+				ResponseErrorMessage,
+				convertedResults,
 				expectedIDs,
 			)
 			return errors.New(errorMessage)
 		}
 
-		foundResult = false
+		for _, m := range expectedIDs {
+			for _, v := range convertedResults {
+				if m == v.ID {
+					foundResult = true
+					break
+				}
+			}
+
+			if foundResult == false {
+				errorMessage := fmt.Sprintf(
+					ResponseErrorMessage,
+					convertedResults,
+					expectedIDs,
+				)
+				return errors.New(errorMessage)
+			}
+
+			foundResult = false
+		}
+		break
+
+	case filteredIntIDResponse:
+		convertedResults := result.(filteredIntIDResponse)
+		err := SetJSONFromResponse(bodyResponse, &convertedResults)
+
+		if err != nil {
+			return err
+		}
+
+		if len(convertedResults.Data) != len(expectedIDs) {
+			errorMessage := fmt.Sprintf(
+				ResponseErrorMessage,
+				convertedResults.Data,
+				expectedIDs,
+			)
+			return errors.New(errorMessage)
+		}
+
+		for _, m := range expectedIDs {
+			for _, v := range convertedResults.Data {
+				if m == v.ID {
+					foundResult = true
+					break
+				}
+			}
+
+			if foundResult == false {
+				errorMessage := fmt.Sprintf(
+					ResponseErrorMessage,
+					convertedResults.Data,
+					expectedIDs,
+				)
+				return errors.New(errorMessage)
+			}
+
+			foundResult = false
+		}
+		break
+	default:
+		return errors.New("Invalid result type passed")
 	}
 
 	return nil
+}
 
+func ValidateFilteredIntArrayResponse(bodyResponse io.Reader, expectedResult interface{}) error {
+	result := filteredIntIDResponse{}
+	return validateIDResponse(bodyResponse, result, expectedResult)
+}
+
+func ValidateIntArrayResponse(bodyResponse io.Reader, expectedResult interface{}) error {
+	resultIDs := make([]intIDResponse, 0)
+	return validateIDResponse(bodyResponse, resultIDs, expectedResult)
 }
 
 // SetJSONFromResponse takes io.Reader which will generally be a response from

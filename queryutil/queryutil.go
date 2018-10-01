@@ -316,13 +316,11 @@ func ApplyAll(
 
 	if intTake != uint64(0) {
 		ApplyLimit(query)
-		varReplacements = append(varReplacements, take, skip)
+		varReplacements = append(varReplacements, intTake, skip)
 	}
 
-	fmt.Printf("parameters: %v\n", varReplacements)
 	newQuery := sqlx.Rebind(bindVar, *query)
 	*query = newQuery
-	fmt.Printf("query here: %s\n", *query)
 
 	return varReplacements, nil
 }
@@ -353,6 +351,7 @@ func GetFilteredResults(
 		return nil, 0, err
 	}
 
+	*query += ";"
 	results, err := db.Query(
 		*query,
 		replacements...,
@@ -376,6 +375,7 @@ func GetFilteredResults(
 		return nil, 0, err
 	}
 
+	*countQuery += ";"
 	countResults, err := dbutil.QueryCount(
 		db,
 		*countQuery,
