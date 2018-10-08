@@ -14,6 +14,8 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
+	"reflect"
+
 	"github.com/pkg/errors"
 )
 
@@ -26,7 +28,9 @@ const (
 var (
 	//ErrQueryNil      = errors.New("query can't be nil")
 	//ErrInvalidFilter = errors.New("invalid filter")
-	ErrInvalidSort = errors.New("invalid sort")
+	ErrInvalidSort  = errors.New("invalid sort")
+	ErrInvalidArray = errors.New("invalid array for field")
+	ErrInvalidValue = errors.New("invalid field value")
 )
 
 // FormRequest is used to get form values from url string
@@ -106,35 +110,50 @@ func ApplyFilter(query *string, filters []*Filter) {
 		// Loop through given filters and apply search criteria to query
 		// based off of filter operator
 		for i := 0; i < len(filters); i++ {
-			switch filters[i].Operator {
-			case "eq":
-				*query += " " + filters[i].Field + " = ?"
-			case "neq":
-				*query += " " + filters[i].Field + " != ?"
-			case "startswith":
-				*query += " " + filters[i].Field + " ilike ? || '%'"
-			case "endswith":
-				*query += " " + filters[i].Field + " ilike '%' || ?"
-			case "contains":
-				*query += " " + filters[i].Field + " ilike '%' || ? || '%'"
-			case "doesnotcontain":
-				*query += " " + filters[i].Field + " not ilike '%' || ? || '%'"
-			case "isnull":
-				*query += " " + filters[i].Field + " is null"
-			case "isnotnull":
-				*query += " " + filters[i].Field + " is not null"
-			case "isempty":
-				*query += " " + filters[i].Field + " = ''"
-			case "isnotempty":
-				*query += " " + filters[i].Field + " != ''"
-			case "lt":
-				*query += " " + filters[i].Field + " < ?"
-			case "lte":
-				*query += " " + filters[i].Field + " <= ?"
-			case "gt":
-				*query += " " + filters[i].Field + " > ?"
-			case "gte":
-				*query += " " + filters[i].Field + " >= ?"
+			list, ok := filters[i].Value.([]interface{})
+
+			if ok {
+				for _, v := range list {
+					someType := reflect.TypeOf(v)
+
+					if someType.String() == "string" || someType.String() == "float64" {
+						switch filters[i].Operator {
+						case "eq":
+							*query += " " + filters[i].Field + " in (?)"
+						}
+					}
+				}
+			} else {
+				switch filters[i].Operator {
+				case "eq":
+					*query += " " + filters[i].Field + " = ?"
+				case "neq":
+					*query += " " + filters[i].Field + " != ?"
+				case "startswith":
+					*query += " " + filters[i].Field + " ilike ? || '%'"
+				case "endswith":
+					*query += " " + filters[i].Field + " ilike '%' || ?"
+				case "contains":
+					*query += " " + filters[i].Field + " ilike '%' || ? || '%'"
+				case "doesnotcontain":
+					*query += " " + filters[i].Field + " not ilike '%' || ? || '%'"
+				case "isnull":
+					*query += " " + filters[i].Field + " is null"
+				case "isnotnull":
+					*query += " " + filters[i].Field + " is not null"
+				case "isempty":
+					*query += " " + filters[i].Field + " = ''"
+				case "isnotempty":
+					*query += " " + filters[i].Field + " != ''"
+				case "lt":
+					*query += " " + filters[i].Field + " < ?"
+				case "lte":
+					*query += " " + filters[i].Field + " <= ?"
+				case "gt":
+					*query += " " + filters[i].Field + " > ?"
+				case "gte":
+					*query += " " + filters[i].Field + " >= ?"
+				}
 			}
 
 			// If there is more in filter slice, append "and"
@@ -347,7 +366,6 @@ func GetFilteredResults(
 	)
 
 	if err != nil {
-		fmt.Print("error 1")
 		return nil, 0, err
 	}
 
@@ -358,7 +376,6 @@ func GetFilteredResults(
 	)
 
 	if err != nil {
-		fmt.Print("error 2")
 		return nil, 0, err
 	}
 
@@ -371,7 +388,6 @@ func GetFilteredResults(
 	)
 
 	if err != nil {
-		fmt.Print("error 3")
 		return nil, 0, err
 	}
 
@@ -383,7 +399,6 @@ func GetFilteredResults(
 	)
 
 	if err != nil {
-		fmt.Print("error 4")
 		return nil, 0, err
 	}
 
@@ -442,7 +457,27 @@ func replaceFields(filters []*Filter, fieldNames []string) ([]interface{}, error
 				containsField = true
 
 				if v.Value != "" && v.Operator != "isnull" && v.Operator != "isnotnull" {
-					replacements = append(replacements, v.Value)
+					list, ok := v.Value.([]interface{})
+
+					if ok {
+						for _, t := range list {
+							someType := reflect.TypeOf(t)
+
+							if someType.String() == "string" || someType.String() == "float64" {
+								replacements = append(replacements, t)
+							} else {
+								return nil, ErrInvalidArray
+							}
+						}
+					} else {
+						someType := reflect.TypeOf(v.Value)
+
+						if someType.String() == "string" || someType.String() == "float64" {
+							replacements = append(replacements, v.Value)
+						} else {
+							return nil, ErrInvalidValue
+						}
+					}
 				}
 
 				break
