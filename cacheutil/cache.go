@@ -17,7 +17,7 @@ type CacheStore interface {
 
 type CacheStoreV2 interface {
 	CacheStore
-	HasKey(key string) bool
+	HasKey(key string) (bool, error)
 }
 
 // ClientCache is default struct that implements the CacheStore interface
@@ -64,14 +64,14 @@ func (c *ClientCache) Del(keys ...string) {
 // 	return true
 // }
 
-func (c *ClientCache) HasKey(key string) bool {
+func (c *ClientCache) HasKey(key string) (bool, error) {
 	_, err := c.Get(key)
 
 	if err != nil {
-		return false
+		return false, err
 	}
 
-	return true
+	return true, nil
 }
 
 func ConcatenateCacheKey(keyString string, values ...interface{}) string {

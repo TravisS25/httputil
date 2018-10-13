@@ -56,7 +56,7 @@ type CustomTx struct {
 	tx *sqlx.Tx
 }
 
-// QueryRow is wrapper for sql.QueryRow with custom reutrn of httputil.Scanner
+// QueryRow is wrapper for sql.QueryRow with custom return of httputil.Scanner
 func (c *CustomTx) QueryRow(query string, args ...interface{}) httputil.Scanner {
 	return c.tx.QueryRow(query, args...)
 }

@@ -45,24 +45,11 @@ type FormValidator interface {
 	Validate() error
 }
 
-// Form is main interface that should be used within you testing
-// and within your http.HandleFunc routing
-// type Form interface {
-// 	Validate(item interface{}) error
-// }
-
 // Validator is main interface that should be used within you testing
 // and within your http.HandleFunc routing
 type Validator interface {
 	Validate(item interface{}) error
 }
-
-// // FormCache extends Form interface by adding abilty to set cache
-// // for form validation
-// type FormCache interface {
-// 	Form
-// 	SetCache(cache cacheutil.CacheStore)
-// }
 
 //----------------------- TYPES ------------------------------
 
@@ -238,19 +225,22 @@ func (f *FormValidation) ValidIDs(query string, args ...interface{}) (bool, erro
 
 // Exists returns true if given query returns a row from database
 // Else return false
-func (f *FormValidation) Exists(query string, args ...interface{}) bool {
+func (f *FormValidation) Exists(query string, args ...interface{}) (bool, error) {
 	var filler string
 	err := f.db.QueryRow(query, args...).Scan(&filler)
 
-	if err == sql.ErrNoRows {
-		return false
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+
+		return false, err
 	}
 
-	return true
+	return true, nil
 }
 
 type validateDateRule struct {
-	// dateType      int
 	layout        string
 	timezone      string
 	canBeFuture   bool
