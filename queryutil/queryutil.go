@@ -447,6 +447,17 @@ func (g *GeneralJSON) Scan(src interface{}) error {
 	return nil
 }
 
+func InQueryRebind(bindType int, query string, args ...interface{}) (string, []interface{}, error) {
+	query, args, err := sqlx.In(query, args...)
+
+	if err != nil {
+		return "", nil, err
+	}
+
+	query = sqlx.Rebind(bindType, query)
+	return query, args, nil
+}
+
 func replaceFields(filters []*Filter, fieldNames []string) ([]interface{}, error) {
 	replacements := make([]interface{}, 0)
 	for i, v := range filters {

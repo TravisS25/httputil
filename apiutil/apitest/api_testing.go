@@ -49,6 +49,12 @@ type TestCase struct {
 	// and determine if the given response is the expected one
 	//ValidResponse func(bodyResponse io.Reader) (bool, error)
 	ValidateResponse Response
+	// PostResponse is used to validate anything a user wishes after api is
+	// done executing.  This is mainly intended to be used for querying
+	// against a database after POST/PUT/DELETE request to validate that
+	// proper things were written to the database.  Could also be used
+	// for clean up
+	PostResponseValidation func() error
 }
 
 type intIDResponse struct {
@@ -128,20 +134,27 @@ func RunTestCases(t *testing.T, testCases []TestCase) {
 					v.Errorf(err.Error())
 				}
 			}
+
+			if testCase.PostResponseValidation != nil {
+				if err = testCase.PostResponseValidation(); err != nil {
+					v.Errorf(err.Error())
+				}
+			}
 		})
 	}
 }
 
 func validateIDResponse(bodyResponse io.Reader, result interface{}, expectedResult interface{}) error {
-	expectedIDs, ok := expectedResult.([]int)
 	foundResult := false
-
-	if !ok {
-		return errors.New("Expected result should be []int")
-	}
 
 	switch result.(type) {
 	case []intIDResponse:
+		expectedIDs, ok := expectedResult.([]int)
+
+		if !ok {
+			return errors.New("Expected result should be []int")
+		}
+
 		convertedResults := result.([]intIDResponse)
 		err := SetJSONFromResponse(bodyResponse, &convertedResults)
 
@@ -180,6 +193,12 @@ func validateIDResponse(bodyResponse io.Reader, result interface{}, expectedResu
 		break
 
 	case filteredIntIDResponse:
+		expectedIDs, ok := expectedResult.([]int)
+
+		if !ok {
+			return errors.New("Expected result should be []int")
+		}
+
 		convertedResults := result.(filteredIntIDResponse)
 		err := SetJSONFromResponse(bodyResponse, &convertedResults)
 
@@ -216,11 +235,38 @@ func validateIDResponse(bodyResponse io.Reader, result interface{}, expectedResu
 			foundResult = false
 		}
 		break
+	case intIDResponse:
+		expectedID, ok := expectedResult.(int)
+
+		if !ok {
+			return errors.New("Expected result should be int")
+		}
+
+		convertedResult := result.(intIDResponse)
+		err := SetJSONFromResponse(bodyResponse, &convertedResult)
+
+		if err != nil {
+			return err
+		}
+
+		if convertedResult.ID != expectedID {
+			errorMessage := fmt.Sprintf(
+				ResponseErrorMessage,
+				convertedResult.ID,
+				expectedID,
+			)
+			return errors.New(errorMessage)
+		}
 	default:
 		return errors.New("Invalid result type passed")
 	}
 
 	return nil
+}
+
+func ValidateObjectIDResponse(bodyResponse io.Reader, expectedResult interface{}) error {
+	result := intIDResponse{}
+	return validateIDResponse(bodyResponse, result, expectedResult)
 }
 
 func ValidateFilteredIntArrayResponse(bodyResponse io.Reader, expectedResult interface{}) error {

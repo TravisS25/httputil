@@ -76,6 +76,18 @@ func ServerError(w http.ResponseWriter, err error, customMessage string) {
 	CheckError(err, customMessage)
 }
 
+// HasServerError is wrapper for ServerError that returns if error passed
+// is nil or not.  Point of function is simply to reduce code lines by
+// a caller function
+func HasServerError(w http.ResponseWriter, err error, customMessage string) bool {
+	if err != nil {
+		ServerError(w, err, "")
+		return true
+	}
+
+	return false
+}
+
 // HasFormErrors determines if err is nil and if it is, convert it to json form
 // with which form fields have errors and send to client with 406 error
 // If err is not nil, returns true else false
