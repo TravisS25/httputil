@@ -13,12 +13,13 @@ type CacheStore interface {
 	Get(key string) ([]byte, error)
 	Set(key string, value interface{}, expiration time.Duration)
 	Del(keys ...string)
-}
-
-type CacheStoreV2 interface {
-	CacheStore
 	HasKey(key string) (bool, error)
 }
+
+// type CacheStoreV2 interface {
+// 	CacheStore
+// 	HasKey(key string) (bool, error)
+// }
 
 // ClientCache is default struct that implements the CacheStore interface
 // The underlining implementation is based off of the

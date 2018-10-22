@@ -49,7 +49,7 @@ type CookieStore struct {
 	EncryptKey string `yaml:"encrypt_key"`
 }
 
-// FilSystenStore is config struct for storing sessions
+// FileSystemStore is config struct for storing sessions
 // in the file system
 type FileSystemStore struct {
 	Dir        string `yaml:"dir"`
@@ -94,6 +94,18 @@ type Database struct {
 	SSlMode  string `yaml:"ssl_mode"`
 }
 
+type S3Config struct {
+	IsProd  bool                  `yaml:"is_prod"`
+	Buckets map[string]*S3Storage `yaml:"buckets"`
+}
+
+type S3Storage struct {
+	EndPoint        string `json:"end_point"`
+	AccessKeyID     string `yaml:"access_key_id"`
+	SecretAccessKey string `yaml:"secret_access_key"`
+	UseSSL          bool   `yaml:"use_ssl"`
+}
+
 // Settings is the configuration settings for the app
 type Settings struct {
 	Prod           bool            `yaml:"prod"`
@@ -109,4 +121,5 @@ type Settings struct {
 	Cache          *CacheConfig    `yaml:"cache"`
 	DatabaseConfig *DatabaseConfig `yaml:"database_config"`
 	Stripe         *Stripe         `yaml:"stripe"`
+	S3Config       *S3Config       `yaml:"s3_config"`
 }

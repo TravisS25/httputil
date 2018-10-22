@@ -87,8 +87,8 @@ type FormValidation struct {
 	db    httputil.Querier
 	cache cacheutil.CacheStore
 
-	// V2 for backwards compatability
-	cacheV2 cacheutil.CacheStoreV2
+	// // V2 for backwards compatability
+	// cacheV2 cacheutil.CacheStoreV2
 }
 
 // GetQuerier returns httputil.Querier
@@ -101,10 +101,10 @@ func (f *FormValidation) GetCache() cacheutil.CacheStore {
 	return f.cache
 }
 
-// GetCacheV2 returns cacheutil.CacheStoreV2
-func (f *FormValidation) GetCacheV2() cacheutil.CacheStoreV2 {
-	return f.cacheV2
-}
+// // GetCache returns cacheutil.CacheStoreV2
+// func (f *FormValidation) GetCache() cacheutil.CacheStoreV2 {
+// 	return f.cacheV2
+// }
 
 // SetQuerier sets httputil.Querier
 func (f *FormValidation) SetQuerier(querier httputil.Querier) {
@@ -116,10 +116,10 @@ func (f *FormValidation) SetCache(cache cacheutil.CacheStore) {
 	f.cache = cache
 }
 
-// SetCacheV2 sets cacheutil.CacheStoreV2
-func (f *FormValidation) SetCacheV2(cache cacheutil.CacheStoreV2) {
-	f.cacheV2 = cache
-}
+// // SetCacheV2 sets cacheutil.CacheStoreV2
+// func (f *FormValidation) SetCacheV2(cache cacheutil.CacheStoreV2) {
+// 	f.cacheV2 = cache
+// }
 
 // IsValid returns *validRule based on isValid parameter
 // Basically IsValid is a wrapper for the passed bool

@@ -121,6 +121,8 @@ func RunFormTests(t *testing.T, formTests []FormTestCase) {
 			if formTest.PostExecute != nil {
 				formTest.PostExecute()
 			}
+
+			//panic("hello panic")
 			// if hasError && validationErrors != nil {
 			// 	fmt.Printf("Actual errors: %s\n", validationErrors)
 			// }

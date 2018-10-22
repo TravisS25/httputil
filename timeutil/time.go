@@ -8,6 +8,22 @@ import (
 	"github.com/TravisS25/httputil/confutil"
 )
 
+func ConvertTimeToLocalDateTime(dateString, timezone string) (time.Time, error) {
+	location, err := time.LoadLocation(timezone)
+
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	parsedTime, err := time.Parse(confutil.PostgresDateLayout, dateString)
+
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	return parsedTime.In(location), nil
+}
+
 func GetCurrentDateTimeInUTC() *time.Time {
 	currentDate := time.Now()
 	year := strconv.Itoa(currentDate.Year())
@@ -18,8 +34,8 @@ func GetCurrentDateTimeInUTC() *time.Time {
 	return &currentUTCDate
 }
 
-func GetCurrentLocalDateTimeInUTC(timeZone string) (*time.Time, error) {
-	location, err := time.LoadLocation(timeZone)
+func GetCurrentLocalDateTimeInUTC(timezone string) (*time.Time, error) {
+	location, err := time.LoadLocation(timezone)
 
 	if err != nil {
 		return nil, err

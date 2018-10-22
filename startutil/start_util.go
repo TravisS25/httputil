@@ -46,9 +46,9 @@ func GetCacheSettings(conf *confutil.Settings) cacheutil.CacheStore {
 	return getCacheSettings(conf)
 }
 
-func GetCacheSettingsV2(conf *confutil.Settings) cacheutil.CacheStoreV2 {
-	return getCacheSettings(conf)
-}
+// func GetCacheSettingsV2(conf *confutil.Settings) cacheutil.CacheStore {
+// 	return getCacheSettings(conf)
+// }
 
 func GetDB(conf *confutil.Settings, isProd bool) (*dbutil.DB, error) {
 	var err error

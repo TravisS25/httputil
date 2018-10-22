@@ -72,8 +72,6 @@ func ServerError(w http.ResponseWriter, err error, customMessage string) {
 	} else {
 		w.Write([]byte(ErrServerMessage.Error()))
 	}
-
-	CheckError(err, customMessage)
 }
 
 // HasServerError is wrapper for ServerError that returns if error passed
@@ -81,7 +79,7 @@ func ServerError(w http.ResponseWriter, err error, customMessage string) {
 // a caller function
 func HasServerError(w http.ResponseWriter, err error, customMessage string) bool {
 	if err != nil {
-		ServerError(w, err, "")
+		ServerError(w, err, customMessage)
 		return true
 	}
 
@@ -93,7 +91,6 @@ func HasServerError(w http.ResponseWriter, err error, customMessage string) bool
 // If err is not nil, returns true else false
 func HasFormErrors(w http.ResponseWriter, err error) bool {
 	if err != nil {
-		CheckError(err, "")
 		payload, ok := err.(validation.Errors)
 
 		if ok {
@@ -173,6 +170,26 @@ func HasQueryError(w http.ResponseWriter, err error, notFoundMessage string) boo
 	if err == sql.ErrNoRows {
 		w.WriteHeader(http.StatusNotFound)
 		w.Write([]byte(notFoundMessage))
+		return true
+	}
+
+	if err != nil {
+		ServerError(w, err, "")
+		return true
+	}
+
+	return false
+}
+
+func HasQueryOrServerError(w http.ResponseWriter, err error, notFoundMessage, serverErrorMessage string) bool {
+	if err == sql.ErrNoRows {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(notFoundMessage))
+		return true
+	}
+
+	if err != nil {
+		ServerError(w, err, serverErrorMessage)
 		return true
 	}
 
