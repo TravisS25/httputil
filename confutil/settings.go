@@ -122,4 +122,6 @@ type Settings struct {
 	DatabaseConfig *DatabaseConfig `yaml:"database_config"`
 	Stripe         *Stripe         `yaml:"stripe"`
 	S3Config       *S3Config       `yaml:"s3_config"`
+
+	Databases map[string]*Database `yaml:"databases"`
 }

@@ -39,17 +39,21 @@ const (
 
 //----------------------- INTERFACES ------------------------------
 
-type FormValidator interface {
-	SetQuerier(querier httputil.Querier)
-	SetCache(cache cacheutil.CacheStore)
-	Validate() error
-}
+// type FormValidator interface {
+// 	SetQuerier(querier httputil.Querier)
+// 	SetCache(cache cacheutil.CacheStore)
+// 	Validate() error
+// }
 
 // Validator is main interface that should be used within you testing
 // and within your http.HandleFunc routing
 type Validator interface {
 	Validate(item interface{}) error
 }
+
+// type FormValidator interface {
+// 	Validate() error
+// }
 
 //----------------------- TYPES ------------------------------
 
@@ -86,9 +90,6 @@ type FormSelection struct {
 type FormValidation struct {
 	db    httputil.Querier
 	cache cacheutil.CacheStore
-
-	// // V2 for backwards compatability
-	// cacheV2 cacheutil.CacheStoreV2
 }
 
 // GetQuerier returns httputil.Querier
@@ -177,19 +178,23 @@ func (f *FormValidation) ExistError(field string) string {
 
 // Unique returns true if the given formValue and instanceValue are not
 // found in the query given
-func (f *FormValidation) Unique(formValue string, instanceValue string, query string, args ...interface{}) bool {
+func (f *FormValidation) Unique(formValue string, instanceValue string, query string, args ...interface{}) (bool, error) {
 	if instanceValue == formValue {
-		return true
+		return false, nil
 	}
 
 	var filler string
 	err := f.db.QueryRow(query, args...).Scan(&filler)
 
-	if err != sql.ErrNoRows {
-		return false
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return true, nil
+		}
+
+		return false, err
 	}
 
-	return true
+	return false, nil
 }
 
 // ValidIDs checks if the query given, which should consist of trying to find
