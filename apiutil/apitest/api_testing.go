@@ -47,7 +47,7 @@ type TestCase struct {
 	Handler http.Handler
 	// ValidResponse allows user to take in response from api end
 	// and determine if the given response is the expected one
-	//ValidResponse func(bodyResponse io.Reader) (bool, error)
+	// ValidResponse func(bodyResponse io.Reader) (bool, error)
 	ValidateResponse Response
 	// PostResponse is used to validate anything a user wishes after api is
 	// done executing.  This is mainly intended to be used for querying
@@ -277,6 +277,24 @@ func ValidateFilteredIntArrayResponse(bodyResponse io.Reader, expectedResult int
 func ValidateIntArrayResponse(bodyResponse io.Reader, expectedResult interface{}) error {
 	resultIDs := make([]intIDResponse, 0)
 	return validateIDResponse(bodyResponse, resultIDs, expectedResult)
+}
+
+func ValidateStringResponse(bodyResponse io.Reader, expectedResult interface{}) error {
+	response, err := ioutil.ReadAll(bodyResponse)
+
+	if err != nil {
+		return err
+	}
+
+	if result, ok := expectedResult.(string); ok {
+		if string(response) != result {
+			return fmt.Errorf("Response and expected strings did not match")
+		}
+
+		return nil
+	}
+
+	return fmt.Errorf("Expected result must be string")
 }
 
 // SetJSONFromResponse takes io.Reader which will generally be a response from

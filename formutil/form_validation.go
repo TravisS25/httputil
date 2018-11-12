@@ -37,6 +37,13 @@ const (
 	InvalidPastDate   = "Date can't be before current date/time"
 )
 
+const (
+	RequiredTxt      = "Required"
+	MustBeUniqueTxt  = "Must be unique"
+	AlreadyExistsTxt = "Already exists"
+	DoesNotExistTxt  = "Does not exist"
+)
+
 //----------------------- INTERFACES ------------------------------
 
 // type FormValidator interface {
@@ -178,9 +185,14 @@ func (f *FormValidation) ExistError(field string) string {
 
 // Unique returns true if the given formValue and instanceValue are not
 // found in the query given
-func (f *FormValidation) Unique(formValue string, instanceValue string, query string, args ...interface{}) (bool, error) {
+func (f *FormValidation) Unique(formValue, instanceValue, query string, args ...interface{}) (bool, error) {
+	// If instance value is the same as the form value, then
+	// we return true as the value has not changed from the
+	// instance value
+	// This is used when editing an entity so we don't query
+	// an instance that hasn't changed and mark it as NOT unique
 	if instanceValue == formValue {
-		return false, nil
+		return true, nil
 	}
 
 	var filler string

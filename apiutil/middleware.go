@@ -22,6 +22,8 @@ const (
 	// GroupKey is used as a key when pulling a user's groups out from cache
 	GroupKey = "%s-groups"
 
+	GroupIDKey = "%s-groupIDs"
+
 	// URLKey is used as a key when pulling a user's allowed urls from cache
 	URLKey = "%s-urls"
 )
@@ -29,6 +31,7 @@ const (
 var (
 	UserCtxKey           = key{KeyName: "user"}
 	GroupCtxKey          = key{KeyName: "groupName"}
+	GroupIDCtxKey        = key{KeyName: "groupID"}
 	MiddlewareUserCtxKey = key{KeyName: "middlewareUser"}
 )
 
@@ -146,12 +149,35 @@ func (m *Middleware) AuthMiddleware(w http.ResponseWriter, r *http.Request, next
 func (m *Middleware) GroupMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
 	if r.Context().Value(MiddlewareUserCtxKey) != nil {
 		var groupArray []string
+		//var groupIDArray []int
 		user := r.Context().Value(MiddlewareUserCtxKey).(middlewareUser)
 
 		groups := fmt.Sprintf(GroupKey, user.Email)
+		//groupIDs := fmt.Sprintf(GroupIDKey, user.Email)
+
 		groupBytes, _ := m.CacheStore.Get(groups)
+		//groupIDBytes, _ := m.CacheStore.Get(groupIDs)
+
 		json.Unmarshal(groupBytes, &groupArray)
+		//json.Unmarshal(groupIDBytes, &groupIDArray)
+
 		ctx := context.WithValue(r.Context(), GroupCtxKey, groupArray)
+		//ctx = context.WithValue(ctx, GroupIDCtxKey, groupIDArray)
+		next(w, r.WithContext(ctx))
+	} else {
+		next(w, r)
+	}
+}
+
+func (m *Middleware) GroupIDMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
+	if r.Context().Value(MiddlewareUserCtxKey) != nil {
+		var groupIDArray []int
+
+		user := r.Context().Value(MiddlewareUserCtxKey).(middlewareUser)
+		groupIDs := fmt.Sprintf(GroupIDKey, user.Email)
+		groupIDBytes, _ := m.CacheStore.Get(groupIDs)
+		json.Unmarshal(groupIDBytes, &groupIDArray)
+		ctx := context.WithValue(r.Context(), GroupIDCtxKey, groupIDArray)
 		next(w, r.WithContext(ctx))
 	} else {
 		next(w, r)

@@ -124,4 +124,5 @@ type Settings struct {
 	S3Config       *S3Config       `yaml:"s3_config"`
 
 	Databases map[string]*Database `yaml:"databases"`
+	Emails    map[string]*Email    `yaml:"emails"`
 }
