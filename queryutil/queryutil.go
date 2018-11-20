@@ -451,7 +451,7 @@ func InQueryRebind(bindType int, query string, args ...interface{}) (string, []i
 	query, args, err := sqlx.In(query, args...)
 
 	if err != nil {
-		return "", nil, err
+		return query, nil, err
 	}
 
 	query = sqlx.Rebind(bindType, query)

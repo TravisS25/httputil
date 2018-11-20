@@ -48,6 +48,11 @@ func RunFormTests(t *testing.T, formTests []FormTestCase) {
 		t.Run(formTest.TestName, func(t *testing.T) {
 			ok := true
 			var validationErrors validation.Errors
+
+			if formTest.FormValidator == nil {
+				t.Fatalf("Must Set FormValidator")
+			}
+
 			err := formTest.FormValidator.Validate(formTest.Form)
 
 			if err != nil {
