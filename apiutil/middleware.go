@@ -22,16 +22,16 @@ const (
 	// GroupKey is used as a key when pulling a user's groups out from cache
 	GroupKey = "%s-groups"
 
-	GroupIDKey = "%s-groupIDs"
+	//GroupIDKey = "%s-groupIDs"
 
 	// URLKey is used as a key when pulling a user's allowed urls from cache
 	URLKey = "%s-urls"
 )
 
 var (
-	UserCtxKey           = key{KeyName: "user"}
-	GroupCtxKey          = key{KeyName: "groupName"}
-	GroupIDCtxKey        = key{KeyName: "groupID"}
+	UserCtxKey  = key{KeyName: "user"}
+	GroupCtxKey = key{KeyName: "groupName"}
+	// GroupIDCtxKey        = key{KeyName: "groupID"}
 	MiddlewareUserCtxKey = key{KeyName: "middlewareUser"}
 )
 
@@ -75,7 +75,7 @@ type Middleware struct {
 
 // LogEntryMiddleware is used for logging a user modifying actions such as put, post, and delete
 func (m *Middleware) LogEntryMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	var payload interface{}
+	var payload []byte
 	var err error
 	rw := negroni.NewResponseWriter(w)
 
@@ -83,24 +83,18 @@ func (m *Middleware) LogEntryMiddleware(w http.ResponseWriter, r *http.Request, 
 		if r.Body != nil {
 			body, _ := ioutil.ReadAll(r.Body)
 			r.Body = ioutil.NopCloser(bytes.NewBuffer(body))
-			dec := json.NewDecoder(bytes.NewBuffer(body))
-			err = dec.Decode(&payload)
 		}
 	}
 
 	next(rw, r)
 
 	if r.Method == "POST" || r.Method == "PUT" || r.Method == "DELETE" {
-		if (rw.Status() == 0 || rw.Status() == 200) && err == nil {
-			jsonBytes, err := json.Marshal(payload)
+		if rw.Status() == 0 || rw.Status() == 200 {
+			err = m.LogInserter(w, r, payload, m.DB)
 
-			if err != nil {
-				panic("Could not marshal payload")
+			if HasServerError(w, err, "") {
+				return
 			}
-
-			m.LogInserter(w, r, jsonBytes, m.DB)
-		} else if rw.Status() == 0 || rw.Status() == 200 {
-			m.LogInserter(w, r, nil, m.DB)
 		}
 	}
 }
@@ -149,40 +143,33 @@ func (m *Middleware) AuthMiddleware(w http.ResponseWriter, r *http.Request, next
 func (m *Middleware) GroupMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
 	if r.Context().Value(MiddlewareUserCtxKey) != nil {
 		var groupArray []string
-		//var groupIDArray []int
-		user := r.Context().Value(MiddlewareUserCtxKey).(middlewareUser)
 
+		user := r.Context().Value(MiddlewareUserCtxKey).(middlewareUser)
 		groups := fmt.Sprintf(GroupKey, user.Email)
-		//groupIDs := fmt.Sprintf(GroupIDKey, user.Email)
-
 		groupBytes, _ := m.CacheStore.Get(groups)
-		//groupIDBytes, _ := m.CacheStore.Get(groupIDs)
-
 		json.Unmarshal(groupBytes, &groupArray)
-		//json.Unmarshal(groupIDBytes, &groupIDArray)
-
 		ctx := context.WithValue(r.Context(), GroupCtxKey, groupArray)
-		//ctx = context.WithValue(ctx, GroupIDCtxKey, groupIDArray)
+
 		next(w, r.WithContext(ctx))
 	} else {
 		next(w, r)
 	}
 }
 
-func (m *Middleware) GroupIDMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	if r.Context().Value(MiddlewareUserCtxKey) != nil {
-		var groupIDArray []int
+// func (m *Middleware) GroupIDMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
+// 	if r.Context().Value(MiddlewareUserCtxKey) != nil {
+// 		var groupIDArray []int
 
-		user := r.Context().Value(MiddlewareUserCtxKey).(middlewareUser)
-		groupIDs := fmt.Sprintf(GroupIDKey, user.Email)
-		groupIDBytes, _ := m.CacheStore.Get(groupIDs)
-		json.Unmarshal(groupIDBytes, &groupIDArray)
-		ctx := context.WithValue(r.Context(), GroupIDCtxKey, groupIDArray)
-		next(w, r.WithContext(ctx))
-	} else {
-		next(w, r)
-	}
-}
+// 		user := r.Context().Value(MiddlewareUserCtxKey).(middlewareUser)
+// 		groupIDs := fmt.Sprintf(GroupIDKey, user.Email)
+// 		groupIDBytes, _ := m.CacheStore.Get(groupIDs)
+// 		json.Unmarshal(groupIDBytes, &groupIDArray)
+// 		ctx := context.WithValue(r.Context(), GroupIDCtxKey, groupIDArray)
+// 		next(w, r.WithContext(ctx))
+// 	} else {
+// 		next(w, r)
+// 	}
+// }
 
 // RoutingMiddleware is middleware used to indicate whether an incoming request is
 // authorized to go to certain urls based on authentication of a user's groups
