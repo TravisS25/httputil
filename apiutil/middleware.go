@@ -47,7 +47,7 @@ type IUser interface {
 }
 
 type middlewareUser struct {
-	ID    int    `json:"id"`
+	ID    string `json:"id"`
 	Email string `json:"email"`
 }
 
@@ -81,8 +81,8 @@ func (m *Middleware) LogEntryMiddleware(w http.ResponseWriter, r *http.Request, 
 
 	if r.Method == "POST" || r.Method == "PUT" || r.Method == "DELETE" {
 		if r.Body != nil {
-			body, _ := ioutil.ReadAll(r.Body)
-			r.Body = ioutil.NopCloser(bytes.NewBuffer(body))
+			payload, _ = ioutil.ReadAll(r.Body)
+			r.Body = ioutil.NopCloser(bytes.NewBuffer(payload))
 		}
 	}
 

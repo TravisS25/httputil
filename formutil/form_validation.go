@@ -87,8 +87,13 @@ func (c ConvertibleBoolean) Value() bool {
 
 // FormSelection is generic struct used for html forms
 type FormSelection struct {
-	Text  string      `json:"text"`
-	Value interface{} `json:"value"`
+	Text  string `json:"text"`
+	Value string `json:"value"`
+}
+
+type CockroachFormSelection struct {
+	Text  string `json:"text"`
+	Value int64  `json:"value,string"`
 }
 
 // FormValidation is the main struct that other structs will

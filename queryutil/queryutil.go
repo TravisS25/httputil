@@ -474,7 +474,7 @@ func replaceFields(filters []*Filter, fieldNames []string) ([]interface{}, error
 						for _, t := range list {
 							someType := reflect.TypeOf(t)
 
-							if someType.String() == "string" || someType.String() == "float64" {
+							if someType.String() == "string" || someType.String() == "float64" || someType.String() == "bool" {
 								replacements = append(replacements, t)
 							} else {
 								return nil, ErrInvalidArray
@@ -483,7 +483,7 @@ func replaceFields(filters []*Filter, fieldNames []string) ([]interface{}, error
 					} else {
 						someType := reflect.TypeOf(v.Value)
 
-						if someType.String() == "string" || someType.String() == "float64" {
+						if someType.String() == "string" || someType.String() == "float64" || someType.String() == "bool" {
 							replacements = append(replacements, v.Value)
 						} else {
 							return nil, ErrInvalidValue
