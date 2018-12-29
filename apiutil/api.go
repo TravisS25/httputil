@@ -232,6 +232,19 @@ func GetUserGroups(r *http.Request) []string {
 	return nil
 }
 
+func GetUserGroupsI(r *http.Request) []interface{} {
+	if r.Context().Value(GroupCtxKey) != nil {
+		list := r.Context().Value(GroupCtxKey).([]string)
+		args := make([]interface{}, 0)
+		for _, v := range list {
+			args = append(args, v)
+		}
+		return args
+	}
+
+	return nil
+}
+
 // HasGroup is a wrapper for finding if given groups names is in
 // group context of given request
 // If a group name is found, return true; else returns false

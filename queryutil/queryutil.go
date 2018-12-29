@@ -447,6 +447,20 @@ func (g *GeneralJSON) Scan(src interface{}) error {
 	return nil
 }
 
+func GetBindVars(args []interface{}) string {
+	var bindVars string
+
+	for i := 0; i < len(args); i++ {
+		if i == len(args)-1 {
+			bindVars += "?"
+		} else {
+			bindVars += "?,"
+		}
+	}
+
+	return bindVars
+}
+
 func InQueryRebind(bindType int, query string, args ...interface{}) (string, []interface{}, error) {
 	query, args, err := sqlx.In(query, args...)
 
