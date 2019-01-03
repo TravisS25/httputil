@@ -205,6 +205,7 @@ func WhereFilter(
 	prependVars []interface{},
 	fieldNames []string,
 ) ([]interface{}, error) {
+	var err error
 	varReplacements := make([]interface{}, 0)
 	filtersEncoded := r.FormValue("filters")
 
@@ -229,8 +230,13 @@ func WhereFilter(
 		varReplacements = append(varReplacements, replacements...)
 	}
 
-	newQuery := sqlx.Rebind(bindVar, *query)
-	*query = newQuery
+	*query, varReplacements, err = sqlx.In(*query, varReplacements...)
+
+	if err != nil {
+		return nil, err
+	}
+
+	*query = sqlx.Rebind(bindVar, *query)
 
 	return varReplacements, nil
 }
@@ -338,8 +344,13 @@ func ApplyAll(
 		varReplacements = append(varReplacements, intTake, skip)
 	}
 
-	newQuery := sqlx.Rebind(bindVar, *query)
-	*query = newQuery
+	*query, varReplacements, err = sqlx.In(*query, varReplacements...)
+
+	if err != nil {
+		return nil, err
+	}
+
+	*query = sqlx.Rebind(bindVar, *query)
 
 	return varReplacements, nil
 }
@@ -445,20 +456,6 @@ func (g *GeneralJSON) Scan(src interface{}) error {
 	}
 
 	return nil
-}
-
-func GetBindVars(args []interface{}) string {
-	var bindVars string
-
-	for i := 0; i < len(args); i++ {
-		if i == len(args)-1 {
-			bindVars += "?"
-		} else {
-			bindVars += "?,"
-		}
-	}
-
-	return bindVars
 }
 
 func InQueryRebind(bindType int, query string, args ...interface{}) (string, []interface{}, error) {
