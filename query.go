@@ -54,6 +54,11 @@ type SqlxDB interface {
 	Select(dest interface{}, query string, args ...interface{}) error
 }
 
+type Entity interface {
+	XODB
+	SqlxDB
+}
+
 // DBInterface is the main interface that should be used in your
 // request handler functions
 type DBInterface interface {

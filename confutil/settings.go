@@ -109,6 +109,8 @@ type S3Storage struct {
 // Settings is the configuration settings for the app
 type Settings struct {
 	Prod           bool            `yaml:"prod"`
+	AuthKey        string          `yaml:"auth_key"`
+	EncryptKey     string          `yaml:"encrypt_key"`
 	Domain         string          `yaml:"domain"`
 	ClientDomain   string          `yaml:"client_domain"`
 	CSRF           string          `yaml:"csrf"`

@@ -3,11 +3,14 @@ package apiutil
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 	"strings"
+
+	"github.com/garyburd/redigo/redis"
 
 	"github.com/urfave/negroni"
 
@@ -16,6 +19,13 @@ import (
 	"github.com/TravisS25/httputil"
 
 	"github.com/TravisS25/httputil/cacheutil"
+)
+
+// Query types to be used against the Middleware#QueryDB function
+const (
+	AuthMiddleware = iota
+	GroupMiddleware
+	RoutingMiddleware
 )
 
 const (
@@ -39,22 +49,10 @@ type key struct {
 	KeyName string
 }
 
-// IUser is the interface that must be implemented by your user session struct
-// to use GroupMiddleware and RoutingMiddleware
-type IUser interface {
-	GetID() string
-	GetEmail() string
-}
-
 type middlewareUser struct {
 	ID    string `json:"id"`
 	Email string `json:"email"`
 }
-
-// type MiddlewareUser struct {
-// 	ID    int    `json:"id"`
-// 	Email string `json:"email"`
-// }
 
 // InsertLogger is interface that allows to log user's actions of
 // post, put, or delete request
@@ -69,8 +67,8 @@ type Middleware struct {
 	DB              httputil.DBInterface
 	LogInserter     func(res http.ResponseWriter, req *http.Request, payload []byte, db httputil.DBInterface) error
 	UserSessionName string
-
-	AnonRouting []string
+	QueryDB         func(res *http.Request, db httputil.DBInterface, queryType int) ([]byte, error)
+	AnonRouting     []string
 }
 
 // LogEntryMiddleware is used for logging a user modifying actions such as put, post, and delete
@@ -102,41 +100,84 @@ func (m *Middleware) LogEntryMiddleware(w http.ResponseWriter, r *http.Request, 
 // AuthMiddleware is middleware used to check for authenication of incoming requests
 // If there is a session for a user for current request, we add this to the context of the request
 // If you plan on using other middleware of this middleware class, your unmarshaled user
-// must implement the IUser interface
+// must have the same fields as middlewareUser struct
 //
-// Middleware#SessionStore must be set in order to use
+// Middleware#SessionStore and Middleware#UserSessionName must be set in order to use
+// Optionally if Middleware#DB and Middleware#UserSessionFunc is also set, it will resort
+// to a database backend if cache fails if you are storing session related things in a database
+// Middleware#UserSessionFunc should return json format of user in bytes
 func (m *Middleware) AuthMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
+	var middlewareUser middlewareUser
+
 	if m.UserSessionName == "" {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("User session not set"))
 		return
 	}
-	session, _ := m.SessionStore.Get(r, m.UserSessionName)
+	session, err := m.SessionStore.Get(r, m.UserSessionName)
 
-	if val, ok := session.Values[m.UserSessionName]; ok {
-		//var user interface{}
-		var middlewareUser middlewareUser
-		userBytes := val.([]byte)
+	fmt.Printf("session val: %v\n", session)
 
-		err := json.Unmarshal(val.([]byte), &middlewareUser)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
 
-		if err != nil {
+	if err != nil {
+		fmt.Printf("auth middleware err: %s\n", err.Error())
+		if m.DB != nil && m.QueryDB != nil {
+			fmt.Printf("auth middleware db")
+			userBytes, err := m.QueryDB(r, m.DB, AuthMiddleware)
+
+			if err != nil {
+				if err == sql.ErrNoRows {
+					next(w, r)
+					return
+				}
+
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+
+			err = json.Unmarshal(userBytes, &middlewareUser)
+
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte(err.Error()))
+				return
+			}
+
+			ctx := context.WithValue(r.Context(), UserCtxKey, userBytes)
+			ctxWithEmail := context.WithValue(ctx, MiddlewareUserCtxKey, middlewareUser)
+			next(w, r.WithContext(ctxWithEmail))
+		} else {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(err.Error()))
 			return
 		}
-
-		ctx := context.WithValue(r.Context(), UserCtxKey, userBytes)
-		ctxWithEmail := context.WithValue(ctx, MiddlewareUserCtxKey, middlewareUser)
-		next(w, r.WithContext(ctxWithEmail))
 	} else {
-		next(w, r)
+		if val, ok := session.Values[m.UserSessionName]; ok {
+			userBytes := val.([]byte)
+
+			err := json.Unmarshal(val.([]byte), &middlewareUser)
+
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte(err.Error()))
+				return
+			}
+
+			ctx := context.WithValue(r.Context(), UserCtxKey, userBytes)
+			ctxWithEmail := context.WithValue(ctx, MiddlewareUserCtxKey, middlewareUser)
+			next(w, r.WithContext(ctxWithEmail))
+		} else {
+			next(w, r)
+		}
 	}
 }
 
 // GroupMiddleware is middleware used to add current user's groups (if logged in) to the context
 // of the request
-// User session struct must implement IUser interface to use GroupMiddleware
+// User session struct must have same fields as middlewarewUser
 //
 // Middleware#CacheStore must be set in order to use
 // Middleware#AuthMiddleware must come before this middleware
@@ -146,7 +187,33 @@ func (m *Middleware) GroupMiddleware(w http.ResponseWriter, r *http.Request, nex
 
 		user := r.Context().Value(MiddlewareUserCtxKey).(middlewareUser)
 		groups := fmt.Sprintf(GroupKey, user.Email)
-		groupBytes, _ := m.CacheStore.Get(groups)
+		groupBytes, err := m.CacheStore.Get(groups)
+
+		if err != nil {
+			if err != redis.ErrNil {
+				if m.DB != nil && m.QueryDB != nil {
+					fmt.Printf("group middleware db")
+					groupBytes, err = m.QueryDB(r, m.DB, GroupMiddleware)
+
+					if err != nil {
+						if err == sql.ErrNoRows {
+							next(w, r)
+							return
+						}
+
+						w.WriteHeader(http.StatusInternalServerError)
+						return
+					}
+				} else {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+			} else {
+				next(w, r)
+				return
+			}
+		}
+
 		json.Unmarshal(groupBytes, &groupArray)
 		ctx := context.WithValue(r.Context(), GroupCtxKey, groupArray)
 
@@ -191,9 +258,28 @@ func (m *Middleware) RoutingMiddleware(w http.ResponseWriter, r *http.Request, n
 			urlBytes, err := m.CacheStore.Get(key)
 
 			if err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				w.Write([]byte(err.Error()))
-				return
+				if err != redis.ErrNil {
+					if m.DB != nil && m.QueryDB != nil {
+						fmt.Printf("routing middleware db")
+						urlBytes, err = m.QueryDB(r, m.DB, RoutingMiddleware)
+
+						if err != nil {
+							if err == sql.ErrNoRows {
+								next(w, r)
+								return
+							}
+
+							w.WriteHeader(http.StatusInternalServerError)
+							return
+						}
+					} else {
+						w.WriteHeader(http.StatusInternalServerError)
+						return
+					}
+				} else {
+					next(w, r)
+					return
+				}
 			}
 
 			var urls []string

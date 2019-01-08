@@ -9,9 +9,11 @@ import (
 	"os"
 	"strings"
 
+	"bitbucket.org/TravisS25/client-tracking/src/client-tracking-server/config"
 	"github.com/TravisS25/httputil/mailutil"
 	validation "github.com/go-ozzo/ozzo-validation"
 	"github.com/gorilla/csrf"
+	"github.com/gorilla/securecookie"
 	"github.com/gorilla/sessions"
 	"github.com/pkg/errors"
 	"github.com/urfave/negroni"
@@ -319,6 +321,26 @@ func PanicHandlerFunc(to []string, from, subject string, subSearchStrings []stri
 			panic("sending mail error: " + err.Error())
 		}
 	}
+}
+
+// DecodeCookie takes in a cookie name which value should be encoded and then takes the
+// authKey and encryptKey variables passed to decode the value of the cookie
+func DecodeCookie(r *http.Request, cookieName, authKey, encryptKey string) (string, error) {
+	var cookieVal string
+	sc := securecookie.New([]byte(authKey), []byte(encryptKey))
+	ec, err := r.Cookie(cookieName)
+
+	if err != nil {
+		return "", err
+	}
+
+	err = sc.Decode(config.UserSessionName, ec.Value, &cookieVal)
+
+	if err != nil {
+		return "", err
+	}
+
+	return cookieVal, nil
 }
 
 // GetJSONBuffer takes interface and json encodes it into a buffer and returns buffer
