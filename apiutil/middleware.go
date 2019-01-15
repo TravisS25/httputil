@@ -116,21 +116,22 @@ func (m *Middleware) AuthMiddleware(w http.ResponseWriter, r *http.Request, next
 	}
 	session, err := m.SessionStore.Get(r, m.UserSessionName)
 
-	fmt.Printf("session val: %v\n", session)
-
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	if err != nil {
-		fmt.Printf("auth middleware err: %s\n", err.Error())
+	// If session ID is decoded but session is considered new, that means
+	// it could find session in cache which means cache is down so resort
+	// to db
+	if session.ID != "" && session.IsNew {
 		if m.DB != nil && m.QueryDB != nil {
 			fmt.Printf("auth middleware db")
 			userBytes, err := m.QueryDB(r, m.DB, AuthMiddleware)
 
 			if err != nil {
 				if err == sql.ErrNoRows {
+					fmt.Printf("auth middleware db no row found")
 					next(w, r)
 					return
 				}
@@ -197,6 +198,7 @@ func (m *Middleware) GroupMiddleware(w http.ResponseWriter, r *http.Request, nex
 
 					if err != nil {
 						if err == sql.ErrNoRows {
+							fmt.Printf("group middleware db no row found")
 							next(w, r)
 							return
 						}
@@ -265,6 +267,7 @@ func (m *Middleware) RoutingMiddleware(w http.ResponseWriter, r *http.Request, n
 
 						if err != nil {
 							if err == sql.ErrNoRows {
+								fmt.Printf("routing middleware db no row found")
 								next(w, r)
 								return
 							}
