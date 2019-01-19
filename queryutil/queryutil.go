@@ -39,6 +39,12 @@ type FormRequest interface {
 	FormValue(string) string
 }
 
+type ApplyConfig struct {
+	ApplyLimit      bool
+	ApplyOrdering   bool
+	ExclusionFields []string
+}
+
 // Filter is the filter config struct for server side filtering
 type Filter struct {
 	Field    string      `json:"field"`
@@ -90,22 +96,42 @@ func DecodeFilter(filterEncoding string) ([]*Filter, error) {
 	return filterArray, nil
 }
 
-// ApplyFilter takes a query string with a slice of Filter structs
-// and applies where filtering to the query
-func ApplyFilter(query *string, filters []*Filter) {
+// ------------------------ Filter Logic -------------------------------
+
+func applyFilter(query *string, filters []*Filter) {
 	if len(filters) > 0 {
+		var selectCount int
+		var whereCount int
+
 		// Regular expression for checking whether the given query
 		// already has a where statement
-		re := regexp.MustCompile(`(?i)(\n|\t|\s)where(\n|\t|\s)`)
+		selectExp := regexp.MustCompile(`(?i)(\n|\t|\s|\A)select(\n|\t|\s)`)
+		whereExp := regexp.MustCompile(`(?i)(\n|\t|\s)where(\n|\t|\s)`)
 
-		// If query already has where statement, apply "and" to the query
-		// with the filters
-		// Else apply where clause with filters
-		if re.MatchString(*query) {
-			*query += " and "
-		} else {
-			*query += " where "
+		selectSlice := selectExp.FindAllStringIndex(*query, -1)
+		whereSlice := whereExp.FindAllStringIndex(*query, -1)
+
+		if selectSlice != nil {
+			selectCount = len(selectSlice)
 		}
+		if whereSlice != nil {
+			whereCount = len(whereSlice)
+		}
+
+		if whereCount < selectCount {
+			*query += " where "
+		} else {
+			*query += " and "
+		}
+
+		// // If query already has where statement, apply "and" to the query
+		// // with the filters
+		// // Else apply where clause with filters
+		// if whereExp.MatchString(*query) {
+		// 	*query += " and "
+		// } else {
+		// 	*query += " where "
+		// }
 
 		// Loop through given filters and apply search criteria to query
 		// based off of filter operator
@@ -164,6 +190,26 @@ func ApplyFilter(query *string, filters []*Filter) {
 	}
 }
 
+func ApplyFilterV2(query *string, filters []*Filter, exclusionFields []string) {
+	for i, v := range filters {
+		for _, t := range exclusionFields {
+			if v.Field == t {
+				filters = append(filters[:i], filters[i+1:]...)
+			}
+		}
+	}
+
+	applyFilter(query, filters)
+}
+
+// ApplyFilter takes a query string with a slice of Filter structs
+// and applies where filtering to the query
+func ApplyFilter(query *string, filters []*Filter) {
+	applyFilter(query, filters)
+}
+
+// -------------------------------------------------------------------------------
+
 // ApplyLimit takes given query and applies limit and offset criteria
 func ApplyLimit(query *string) {
 	*query += " limit ? offset ?"
@@ -174,36 +220,15 @@ func ApplyOrdering(query *string, sort *Sort) {
 	*query += " order by " + snaker.CamelToSnake(sort.Field) + " " + sort.Dir
 }
 
-// WhereFilter decodes all the given values from the passed FormRequest
-// and applies it to given query
-// This function simply applies other functions like
-// DecodeFilter, ApplyFilter
-// This function is meant to be used for aggregate queries that
-// need server side filtering
-//
-// r:
-// Struct that implements "FormValue(string)string", which will
-// generally be http.Request
-// query:
-// The query to be modified
-// bindVar:
-// The binding var used for query eg. sql.DOLLAR
-// prependVars:
-// Slice of values that should be used that do not apply
-// to modified query.  See example for better explanation
-// fieldNames:
-// Slice of field names that the filter can apply to
-// These field names should be the name of database fields.
-// Reason for this is to avoid sql injection as field names
-// can't be used a placeholders like values can in a query
-// so if any given filter name does not match any of the field
-// names in the slice, then an error will be thrown
-func WhereFilter(
+// ---------------------- Where Filter Logic ----------------------------
+
+func whereFilter(
 	r FormRequest,
 	query *string,
 	bindVar int,
 	prependVars []interface{},
 	fieldNames []string,
+	exclusionFields []string,
 ) ([]interface{}, error) {
 	var err error
 	varReplacements := make([]interface{}, 0)
@@ -226,7 +251,11 @@ func WhereFilter(
 			return nil, err
 		}
 
-		ApplyFilter(query, filters)
+		if exclusionFields == nil {
+			ApplyFilter(query, filters)
+		} else {
+			ApplyFilterV2(query, filters, exclusionFields)
+		}
 		varReplacements = append(varReplacements, replacements...)
 	}
 
@@ -241,18 +270,18 @@ func WhereFilter(
 	return varReplacements, nil
 }
 
-// ApplyAll is the main function that will be used for server side filtering
-// It applies most of the other functions written including DecodeFilter, ApplyFilter,
-// DecodeSort, ApplyOrdering and ApplyLimit
+// WhereFilter decodes all the given values from the passed FormRequest
+// and applies it to given query
+// This function simply applies other functions like
+// DecodeFilter, ApplyFilter
+// This function is meant to be used for aggregate queries that
+// need server side filtering
 //
 // r:
 // 		Struct that implements "FormValue(string)string", which will
 // 		generally be http.Request
 // query:
 // 		The query to be modified
-// takeLimit:
-// 		Applies limit to the number of returned rows
-// 		If 0, no limit is set
 // bindVar:
 // 		The binding var used for query eg. sql.DOLLAR
 // prependVars:
@@ -262,16 +291,70 @@ func WhereFilter(
 // 		Slice of field names that the filter can apply to
 // 		These field names should be the name of database fields.
 // 		Reason for this is to avoid sql injection as field names
-// 		can't be used as placeholders like values can in a query
+// 		can't be used a placeholders like values can in a query
 // 		so if any given filter name does not match any of the field
 // 		names in the slice, then an error will be thrown
-func ApplyAll(
+func WhereFilter(
+	r FormRequest,
+	query *string,
+	bindVar int,
+	prependVars []interface{},
+	fieldNames []string,
+) ([]interface{}, error) {
+	return whereFilter(r, query, bindVar, prependVars, fieldNames, nil)
+}
+
+// WhereFilterV2 decodes all the given values from the passed FormRequest
+// and applies it to given query
+// This function simply applies other functions like
+// DecodeFilter, ApplyFilter
+// This function is meant to be used for aggregate queries that
+// need server side filtering
+// WhereFilterV2 adds exclusionFields parameter to original WhereFilter function
+// Reason for new parameter is that there are situations where we may want to exclude
+// some filters from being passed to our filters.  See example for explanation
+//
+// r:
+// 		Struct that implements "FormValue(string)string", which will
+// 		generally be http.Request
+// query:
+// 		The query to be modified
+// bindVar:
+// 		The binding var used for query eg. sql.DOLLAR
+// prependVars:
+// 		Slice of values that should be used that do not apply
+// 		to modified query.  See example for better explanation
+// fieldNames:
+// 		Slice of field names that the filter can apply to
+// 		These field names should be the name of database fields.
+// 		Reason for this is to avoid sql injection as field names
+// 		can't be used a placeholders like values can in a query
+// 		so if any given filter name does not match any of the field
+// 		names in the slice, then an error will be thrown
+// exclusionFields:
+//		Fields to exclude from form filters
+//
+func WhereFilterV2(
+	r FormRequest,
+	query *string,
+	bindVar int,
+	prependVars []interface{},
+	fieldNames []string,
+	exclusionFields []string,
+) ([]interface{}, error) {
+	return whereFilter(r, query, bindVar, prependVars, fieldNames, exclusionFields)
+}
+
+// --------------------------- Apply All Logic -----------------------------
+
+func applyAll(
 	r FormRequest,
 	query *string,
 	takeLimit uint64,
 	bindVar int,
 	prependVars []interface{},
 	fieldNames []string,
+	applyConfig *ApplyConfig,
 ) ([]interface{}, error) {
 	var err error
 	var intTake uint64
@@ -321,7 +404,16 @@ func ApplyAll(
 			return nil, err
 		}
 
-		ApplyFilter(query, filters)
+		if applyConfig != nil {
+			if applyConfig.ExclusionFields == nil {
+				ApplyFilter(query, filters)
+			} else {
+				ApplyFilterV2(query, filters, applyConfig.ExclusionFields)
+			}
+		} else {
+			ApplyFilter(query, filters)
+		}
+
 		varReplacements = append(varReplacements, replacements...)
 	}
 
@@ -336,11 +428,23 @@ func ApplyAll(
 			return nil, ErrInvalidSort
 		}
 
-		ApplyOrdering(query, sort)
+		if applyConfig != nil {
+			if applyConfig.ApplyOrdering {
+				ApplyOrdering(query, sort)
+			}
+		} else {
+			ApplyOrdering(query, sort)
+		}
 	}
 
 	if intTake != uint64(0) {
-		ApplyLimit(query)
+		if applyConfig != nil {
+			if applyConfig.ApplyLimit {
+				ApplyLimit(query)
+			}
+		} else {
+			ApplyLimit(query)
+		}
 		varReplacements = append(varReplacements, intTake, skip)
 	}
 
@@ -353,6 +457,80 @@ func ApplyAll(
 	*query = sqlx.Rebind(bindVar, *query)
 
 	return varReplacements, nil
+}
+
+// ApplyAll is the main function that will be used for server side filtering
+// It applies most of the other functions written including DecodeFilter, ApplyFilter,
+// DecodeSort, ApplyOrdering and ApplyLimit
+//
+// r:
+// 		Struct that implements "FormValue(string)string", which will
+// 		generally be http.Request
+// query:
+// 		The query to be modified
+// takeLimit:
+// 		Applies limit to the number of returned rows
+// 		If 0, no limit is set
+// bindVar:
+// 		The binding var used for query eg. sql.DOLLAR
+// prependVars:
+// 		Slice of values that should be used that do not apply
+// 		to modified query.  See example for better explanation
+// fieldNames:
+// 		Slice of field names that the filter can apply to
+// 		These field names should be the name of database fields.
+// 		Reason for this is to avoid sql injection as field names
+// 		can't be used as placeholders like values can in a query
+// 		so if any given filter name does not match any of the field
+// 		names in the slice, then an error will be thrown
+func ApplyAll(
+	r FormRequest,
+	query *string,
+	takeLimit uint64,
+	bindVar int,
+	prependVars []interface{},
+	fieldNames []string,
+) ([]interface{}, error) {
+	return applyAll(r, query, takeLimit, bindVar, prependVars, fieldNames, nil)
+}
+
+// ApplyAllV2 is the main function that will be used for server side filtering
+// It applies most of the other functions written including DecodeFilter, ApplyFilter,
+// DecodeSort, ApplyOrdering and ApplyLimit
+//
+// r:
+// 		Struct that implements "FormValue(string)string", which will
+// 		generally be http.Request
+// query:
+// 		The query to be modified
+// takeLimit:
+// 		Applies limit to the number of returned rows
+// 		If 0, no limit is set
+// bindVar:
+// 		The binding var used for query eg. sql.DOLLAR
+// prependVars:
+// 		Slice of values that should be used that do not apply
+// 		to modified query.  See example for better explanation
+// fieldNames:
+// 		Slice of field names that the filter can apply to
+// 		These field names should be the name of database fields.
+// 		Reason for this is to avoid sql injection as field names
+// 		can't be used as placeholders like values can in a query
+// 		so if any given filter name does not match any of the field
+// 		names in the slice, then an error will be thrown
+// applyConfig:
+//		Configuration to determine whether to apply certain filters
+//
+func ApplyAllV2(
+	r FormRequest,
+	query *string,
+	takeLimit uint64,
+	bindVar int,
+	prependVars []interface{},
+	fieldNames []string,
+	applyconfig *ApplyConfig,
+) ([]interface{}, error) {
+	return applyAll(r, query, takeLimit, bindVar, prependVars, fieldNames, applyconfig)
 }
 
 // GetFilteredResults is a wrapper function for getting a filtered query from
