@@ -9,7 +9,6 @@ import (
 	"os"
 	"strings"
 
-	"bitbucket.org/TravisS25/client-tracking/src/client-tracking-server/config"
 	"github.com/TravisS25/httputil/mailutil"
 	validation "github.com/go-ozzo/ozzo-validation"
 	"github.com/gorilla/csrf"
@@ -334,7 +333,7 @@ func DecodeCookie(r *http.Request, cookieName, authKey, encryptKey string) (stri
 		return "", err
 	}
 
-	err = sc.Decode(config.UserSessionName, ec.Value, &cookieVal)
+	err = sc.Decode(cookieName, ec.Value, &cookieVal)
 
 	if err != nil {
 		return "", err
@@ -349,4 +348,15 @@ func GetJSONBuffer(item interface{}) bytes.Buffer {
 	encoder := json.NewEncoder(&buffer)
 	encoder.Encode(&item)
 	return buffer
+}
+
+// SetSecureCookie is used to set a cookie from a session
+// The code used is copied pasted from the RedisStore#Save function from the redis store library
+func SetSecureCookie(w http.ResponseWriter, session *sessions.Session, keyPairs ...[]byte) error {
+	encoded, err := securecookie.EncodeMulti(session.Name(), session.ID, securecookie.CodecsFromPairs(keyPairs...)...)
+	if err != nil {
+		return err
+	}
+	http.SetCookie(w, sessions.NewCookie(session.Name(), encoded, session.Options))
+	return nil
 }

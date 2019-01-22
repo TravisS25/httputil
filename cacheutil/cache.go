@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/go-redis/redis"
+	"github.com/gorilla/sessions"
+	redistore "gopkg.in/boj/redistore.v1"
 )
 
 // CacheStore is interface used to get, set and delete cached values
@@ -51,20 +53,6 @@ func (c *ClientCache) Del(keys ...string) {
 	c.Client.Del(keys...)
 }
 
-// HasKey takes keyString and any id identifiers and checks if the key exists
-// in cache server
-// Returns true if it does, false otherwise
-// func (c *ClientCache) HasKey(keyString string, keyIDs ...interface{}) bool {
-// 	key := ConcatenateCacheKey(keyString, keyIDs...)
-// 	_, err := c.Client.Get(key).Bytes()
-
-// 	if err != nil {
-// 		return false
-// 	}
-
-// 	return true
-// }
-
 func (c *ClientCache) HasKey(key string) (bool, error) {
 	_, err := c.Get(key)
 
@@ -79,27 +67,32 @@ func ConcatenateCacheKey(keyString string, values ...interface{}) string {
 	return fmt.Sprintf(keyString, values...)
 }
 
-// func SetCacheForIDs(cache CacheStore, values interface{}, variableName, keyString string) error {
-// 	s := reflect.ValueOf(values)
+type SessionConfig struct {
+	SessionName string
+	UserKey     string
+}
 
-// 	if s.Kind() != reflect.Slice {
-// 		return errors.New("values parameter must be slice")
-// 	}
+type SessionStore interface {
+	sessions.Store
+	Ping() (bool, error)
+}
 
-// 	sliceValues := s.Interface().([]interface{})
+type RedisStore struct {
+	*redistore.RediStore
+}
 
-// 	for i := 0; i < len(sliceValues); i++ {
-// 		e := reflect.ValueOf(sliceValues[i])
+func NewRedisStore(store *redistore.RediStore) *RedisStore {
+	return &RedisStore{
+		RediStore: store,
+	}
+}
 
-// 		fmt.Printf("her we goooo: %s", e)
-
-// 		for k := 0; i < e.NumField(); i++ {
-// 			if e.Type().Field(k).Name == variableName {
-// 				key := ConcatenateCacheKey(keyString, "1")
-// 				cache.Set(key, e.String(), 0)
-// 			}
-// 		}
-// 	}
-
-// 	return nil
-// }
+func (r *RedisStore) Ping() (bool, error) {
+	conn := r.RediStore.Pool.Get()
+	defer conn.Close()
+	data, err := conn.Do("PING")
+	if err != nil || data == nil {
+		return false, err
+	}
+	return (data == "PONG"), nil
+}

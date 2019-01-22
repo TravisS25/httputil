@@ -11,9 +11,9 @@ import (
 	"strings"
 
 	"github.com/garyburd/redigo/redis"
-
 	"github.com/urfave/negroni"
 
+	"github.com/gorilla/securecookie"
 	"github.com/gorilla/sessions"
 
 	"github.com/TravisS25/httputil"
@@ -23,16 +23,15 @@ import (
 
 // Query types to be used against the Middleware#QueryDB function
 const (
-	AuthMiddleware = iota
-	GroupMiddleware
-	RoutingMiddleware
+	UserQuery = iota
+	GroupQuery
+	RoutingQuery
+	SessionQuery
 )
 
 const (
 	// GroupKey is used as a key when pulling a user's groups out from cache
 	GroupKey = "%s-groups"
-
-	//GroupIDKey = "%s-groupIDs"
 
 	// URLKey is used as a key when pulling a user's allowed urls from cache
 	URLKey = "%s-urls"
@@ -62,13 +61,14 @@ type InsertLogger interface {
 }
 
 type Middleware struct {
-	CacheStore      cacheutil.CacheStore
-	SessionStore    sessions.Store
-	DB              httputil.DBInterface
-	LogInserter     func(res http.ResponseWriter, req *http.Request, payload []byte, db httputil.DBInterface) error
-	UserSessionName string
-	QueryDB         func(res *http.Request, db httputil.DBInterface, queryType int) ([]byte, error)
-	AnonRouting     []string
+	CacheStore   cacheutil.CacheStore
+	SessionStore cacheutil.SessionStore
+	DB           httputil.DBInterface
+	LogInserter  func(res http.ResponseWriter, req *http.Request, payload []byte, db httputil.DBInterface) error
+	QueryDB      func(res *http.Request, db httputil.DBInterface, queryType int) ([]byte, error)
+	AnonRouting  []string
+
+	SessionKeys *cacheutil.SessionConfig
 }
 
 // LogEntryMiddleware is used for logging a user modifying actions such as put, post, and delete
@@ -108,55 +108,94 @@ func (m *Middleware) LogEntryMiddleware(w http.ResponseWriter, r *http.Request, 
 // Middleware#UserSessionFunc should return json format of user in bytes
 func (m *Middleware) AuthMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
 	var middlewareUser middlewareUser
+	var session *sessions.Session
+	var err error
 
-	if m.UserSessionName == "" {
+	if m.SessionKeys == nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("User session not set"))
 		return
 	}
-	session, err := m.SessionStore.Get(r, m.UserSessionName)
+
+	session, err = m.SessionStore.Get(r, m.SessionKeys.SessionName)
 
 	if err != nil {
+		fmt.Printf("no session err: %s\n", err.Error())
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	// If session ID is decoded but session is considered new, that means
-	// it could find session in cache which means cache is down so resort
-	// to db
-	if session.ID != "" && session.IsNew {
-		if m.DB != nil && m.QueryDB != nil {
-			fmt.Printf("auth middleware db")
-			userBytes, err := m.QueryDB(r, m.DB, AuthMiddleware)
+	// If session is considered new, that means
+	// either current user is truly not logged in or cache was/is down
+	if session.IsNew {
+		fmt.Printf("new session\n")
 
-			if err != nil {
-				if err == sql.ErrNoRows {
-					fmt.Printf("auth middleware db no row found")
-					next(w, r)
+		// First we determine if user is sending a cookie with our user cookie key
+		// If they are
+		if _, err := r.Cookie(m.SessionKeys.SessionName); err == nil {
+			fmt.Printf("has cookie but not found in store\n")
+			if m.DB != nil && m.QueryDB != nil {
+				fmt.Printf("auth middleware db\n")
+				userBytes, err := m.QueryDB(r, m.DB, UserQuery)
+
+				if err != nil {
+					switch err.(type) {
+					case securecookie.Error:
+						w.WriteHeader(http.StatusBadRequest)
+					default:
+						if err == sql.ErrNoRows {
+							w.WriteHeader(http.StatusBadRequest)
+						} else {
+							w.WriteHeader(http.StatusInternalServerError)
+						}
+					}
 					return
 				}
 
-				w.WriteHeader(http.StatusInternalServerError)
-				return
+				err = json.Unmarshal(userBytes, &middlewareUser)
+
+				if err != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					w.Write([]byte(err.Error()))
+					return
+				}
+
+				if _, err = m.SessionStore.Ping(); err == nil {
+					fmt.Printf("ping successful\n")
+					sessionIDBytes, err := m.QueryDB(r, m.DB, SessionQuery)
+
+					if err != nil {
+						if err == sql.ErrNoRows {
+							fmt.Printf("auth middleware db no row found\n")
+							next(w, r)
+							return
+						}
+
+						w.WriteHeader(http.StatusInternalServerError)
+						return
+					}
+
+					fmt.Printf("session bytes: %s\n", sessionIDBytes)
+
+					session, _ = m.SessionStore.New(r, m.SessionKeys.SessionName)
+					session.ID = string(sessionIDBytes)
+					fmt.Printf("session id: %s\n", session.ID)
+					session.Values[m.SessionKeys.UserKey] = userBytes
+					session.Save(r, w)
+					fmt.Printf("set session into store \n")
+				}
+
+				ctx := context.WithValue(r.Context(), UserCtxKey, userBytes)
+				ctxWithEmail := context.WithValue(ctx, MiddlewareUserCtxKey, middlewareUser)
+				next(w, r.WithContext(ctxWithEmail))
+			} else {
+				next(w, r)
 			}
-
-			err = json.Unmarshal(userBytes, &middlewareUser)
-
-			if err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				w.Write([]byte(err.Error()))
-				return
-			}
-
-			ctx := context.WithValue(r.Context(), UserCtxKey, userBytes)
-			ctxWithEmail := context.WithValue(ctx, MiddlewareUserCtxKey, middlewareUser)
-			next(w, r.WithContext(ctxWithEmail))
 		} else {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
+			fmt.Printf("new session, no cookie\n")
+			next(w, r)
 		}
 	} else {
-		if val, ok := session.Values[m.UserSessionName]; ok {
+		if val, ok := session.Values[m.SessionKeys.UserKey]; ok {
 			userBytes := val.([]byte)
 
 			err := json.Unmarshal(val.([]byte), &middlewareUser)
@@ -194,7 +233,7 @@ func (m *Middleware) GroupMiddleware(w http.ResponseWriter, r *http.Request, nex
 			if err != redis.ErrNil {
 				if m.DB != nil && m.QueryDB != nil {
 					fmt.Printf("group middleware db")
-					groupBytes, err = m.QueryDB(r, m.DB, GroupMiddleware)
+					groupBytes, err = m.QueryDB(r, m.DB, GroupQuery)
 
 					if err != nil {
 						if err == sql.ErrNoRows {
@@ -263,7 +302,7 @@ func (m *Middleware) RoutingMiddleware(w http.ResponseWriter, r *http.Request, n
 				if err != redis.ErrNil {
 					if m.DB != nil && m.QueryDB != nil {
 						fmt.Printf("routing middleware db")
-						urlBytes, err = m.QueryDB(r, m.DB, RoutingMiddleware)
+						urlBytes, err = m.QueryDB(r, m.DB, RoutingQuery)
 
 						if err != nil {
 							if err == sql.ErrNoRows {
