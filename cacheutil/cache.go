@@ -1,7 +1,6 @@
 package cacheutil
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/go-redis/redis"
@@ -17,11 +16,6 @@ type CacheStore interface {
 	Del(keys ...string)
 	HasKey(key string) (bool, error)
 }
-
-// type CacheStoreV2 interface {
-// 	CacheStore
-// 	HasKey(key string) (bool, error)
-// }
 
 // ClientCache is default struct that implements the CacheStore interface
 // The underlining implementation is based off of the
@@ -61,10 +55,6 @@ func (c *ClientCache) HasKey(key string) (bool, error) {
 	}
 
 	return true, nil
-}
-
-func ConcatenateCacheKey(keyString string, values ...interface{}) string {
-	return fmt.Sprintf(keyString, values...)
 }
 
 type SessionConfig struct {

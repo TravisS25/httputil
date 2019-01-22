@@ -130,7 +130,7 @@ func (m *Middleware) AuthMiddleware(w http.ResponseWriter, r *http.Request, next
 		fmt.Printf("new session\n")
 
 		// First we determine if user is sending a cookie with our user cookie key
-		// If they are
+		// If they are, try retrieving from db if Middleware#QueryDB is set
 		if _, err := r.Cookie(m.SessionKeys.SessionName); err == nil {
 			fmt.Printf("has cookie but not found in store\n")
 			if m.DB != nil && m.QueryDB != nil {
@@ -159,6 +159,12 @@ func (m *Middleware) AuthMiddleware(w http.ResponseWriter, r *http.Request, next
 					return
 				}
 
+				// Here we test to see if our session backend is responsive
+				// If it is, that means current user logged in while cache was down
+				// and was using the database to grab their sessions but since session
+				// backend is back up, we can set grab current user's session from
+				// database and set it to session backend and use that instead of database
+				// for future requests
 				if _, err = m.SessionStore.Ping(); err == nil {
 					fmt.Printf("ping successful\n")
 					sessionIDBytes, err := m.QueryDB(r, m.DB, SessionQuery)
@@ -232,12 +238,12 @@ func (m *Middleware) GroupMiddleware(w http.ResponseWriter, r *http.Request, nex
 		if err != nil {
 			if err != redis.ErrNil {
 				if m.DB != nil && m.QueryDB != nil {
-					fmt.Printf("group middleware db")
+					fmt.Printf("group middleware db\n")
 					groupBytes, err = m.QueryDB(r, m.DB, GroupQuery)
 
 					if err != nil {
 						if err == sql.ErrNoRows {
-							fmt.Printf("group middleware db no row found")
+							fmt.Printf("group middleware db no row found\n")
 							next(w, r)
 							return
 						}
@@ -301,12 +307,12 @@ func (m *Middleware) RoutingMiddleware(w http.ResponseWriter, r *http.Request, n
 			if err != nil {
 				if err != redis.ErrNil {
 					if m.DB != nil && m.QueryDB != nil {
-						fmt.Printf("routing middleware db")
+						fmt.Printf("routing middleware db\n")
 						urlBytes, err = m.QueryDB(r, m.DB, RoutingQuery)
 
 						if err != nil {
 							if err == sql.ErrNoRows {
-								fmt.Printf("routing middleware db no row found")
+								fmt.Printf("routing middleware db no row found\n")
 								next(w, r)
 								return
 							}
@@ -367,161 +373,3 @@ func (m *Middleware) RoutingMiddleware(w http.ResponseWriter, r *http.Request, n
 
 	next(w, r)
 }
-
-// ----------------------------------------------------
-
-type middleware struct {
-	cacheStore      cacheutil.CacheStore
-	sessionStore    sessions.Store
-	db              httputil.DBInterface
-	inserter        InsertLogger
-	userSessionName string
-	anonRouting     []string
-}
-
-// NewMiddleware is init function for middleware
-func NewMiddleware(sessionStore sessions.Store, cacheStore cacheutil.CacheStore, db httputil.DBInterface, anonRouting []string) *middleware {
-	return &middleware{
-		cacheStore:      cacheStore,
-		sessionStore:    sessionStore,
-		anonRouting:     anonRouting,
-		db:              db,
-		userSessionName: "user",
-	}
-}
-
-func (m *middleware) SetUserSessionName(name string) {
-	m.userSessionName = name
-}
-
-// func (m *middleware) LogEntryMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-// 	var payload interface{}
-// 	var err error
-// 	rw := negroni.NewResponseWriter(w)
-
-// 	if r.Method == "POST" || r.Method == "PUT" || r.Method == "DELETE" {
-// 		if r.Body != nil {
-// 			body, _ := ioutil.ReadAll(r.Body)
-// 			r.Body = ioutil.NopCloser(bytes.NewBuffer(body))
-// 			dec := json.NewDecoder(bytes.NewBuffer(body))
-// 			err = dec.Decode(&payload)
-// 		}
-// 	}
-
-// 	next(rw, r)
-
-// 	if r.Method == "POST" || r.Method == "PUT" || r.Method == "DELETE" {
-// 		if (rw.Status() == 0 || rw.Status() == 200) && err == nil {
-// 			m.inserter.InsertLog(r, payload, m.db)
-// 		} else {
-// 			m.inserter.InsertLog(r, nil, m.db)
-// 		}
-// 	}
-// }
-
-// Authmiddleware is middleware used to check for authenication of incoming requests
-// If there is a session for a user for current request, we add this to the context of the request
-// If you plan on using other middleware of this middleware class, your unmarshaled user
-// must implement the IUser interface
-func (m *middleware) AuthMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	session, _ := m.sessionStore.Get(r, m.userSessionName)
-
-	if val, ok := session.Values[m.userSessionName]; ok {
-		var user interface{}
-		err := json.Unmarshal(val.([]byte), &user)
-
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
-		ctx := context.WithValue(r.Context(), UserCtxKey, &user)
-		next(w, r.WithContext(ctx))
-	} else {
-		next(w, r)
-	}
-}
-
-// GroupMiddleware is middleware used to add current user's groups (if logged in) to the context
-// of the request.  User session struct must implement IUser interface
-// func (m *middleware) GroupMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-// 	user := GetUser(r)
-
-// 	if user != nil {
-// 		var groupArray []string
-// 		currentUser := user.(IUser)
-// 		groups := fmt.Sprintf(GroupKey, currentUser.GetEmail())
-// 		groupBytes, _ := m.cacheStore.Get(groups)
-// 		json.Unmarshal(groupBytes, &groupArray)
-// 		ctx := context.WithValue(r.Context(), GroupCtxKey, groupArray)
-// 		next(w, r.WithContext(ctx))
-// 	} else {
-// 		next(w, r)
-// 	}
-// }
-
-// RoutingMiddleware is middleware used to indicate whether an incoming request is
-// authorized to go to certain urls based on authentication of a user's groups
-// The groups should come from cache and be deserialzed into an array of strings
-// and if current requested url matches any of the urls, they are allowed forward,
-// in not, we 404
-// func (m *middleware) RoutingMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-// 	rootPath := "/"
-// 	path := r.URL.Path
-// 	allowedPath := false
-// 	user := GetUser(r)
-
-// 	if r.Method != "OPTIONS" {
-// 		if user != nil {
-// 			currentUser := user.(IUser)
-// 			key := fmt.Sprintf(URLKey, currentUser.GetEmail())
-// 			urlBytes, err := m.cacheStore.Get(key)
-
-// 			if err != nil {
-// 				w.WriteHeader(http.StatusInternalServerError)
-// 				return
-// 			}
-
-// 			var urls []string
-// 			err = json.Unmarshal(urlBytes, &urls)
-
-// 			if err != nil {
-// 				w.WriteHeader(http.StatusInternalServerError)
-// 				return
-// 			}
-
-// 			if path == rootPath {
-// 				allowedPath = true
-// 			}
-
-// 			for _, url := range urls {
-// 				if strings.Contains(path, url) && url != rootPath {
-// 					allowedPath = true
-// 					break
-// 				}
-// 			}
-
-// 		} else {
-// 			if path == rootPath {
-// 				allowedPath = true
-// 			} else {
-// 				for _, url := range m.anonRouting {
-// 					if strings.Contains(path, url) && url != rootPath {
-// 						allowedPath = true
-// 						break
-// 					}
-// 				}
-// 			}
-// 		}
-
-// 		if !allowedPath {
-// 			w.WriteHeader(http.StatusForbidden)
-// 			w.Write([]byte("Not authorized to access url"))
-// 			return
-// 		}
-
-// 		next(w, r)
-// 	} else {
-// 		next(w, r)
-// 	}
-// }
