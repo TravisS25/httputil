@@ -47,6 +47,7 @@ func (c *ClientCache) Del(keys ...string) {
 	c.Client.Del(keys...)
 }
 
+// HasKey takes key value and determines if that key is in cache
 func (c *ClientCache) HasKey(key string) (bool, error) {
 	_, err := c.Get(key)
 
@@ -85,4 +86,25 @@ func (r *RedisStore) Ping() (bool, error) {
 		return false, err
 	}
 	return (data == "PONG"), nil
+}
+
+type CacheValidateConfig struct {
+	Cache CacheStore
+	Key   string
+}
+
+// CacheSetup is configuration struct used to setup caching database tables
+// that generally do not insert/update often
+//
+// CacheSetup should be used in a map where the key value is the string name of
+// the database table to cache and CacheSetup is the value to use for setting up cache
+type CacheSetup struct {
+	// StringVal should be the "string" representation of the database table
+	StringVal string
+
+	// CacheIDKey should be the key value you will store the table id in cache
+	CacheIDKey string
+
+	// CacheListKey should be the key value you will store the whole table in cache
+	CacheListKey string
 }

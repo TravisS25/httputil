@@ -28,7 +28,7 @@ func ExampleServerError() {
 		if err != nil {
 			// This will write back to client with a 500 status with custom message
 			// and then log error at /var/test.log
-			ServerError(w, err, "custom message", "/var/test.log")
+			ServerError(w, err, "custom message")
 		}
 	})
 }

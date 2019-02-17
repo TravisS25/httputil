@@ -18,9 +18,19 @@ import (
 	"github.com/urfave/negroni"
 )
 
+const (
+	IntBase    = 10
+	IntBitSize = 64
+)
+
+var (
+	True  = true
+	False = false
+)
+
 var (
 	// NonSafeOperations is slice of http methods that are not safe
-	NonSafeOperations = []string{"POST", "PUT", "DELETE"}
+	NonSafeOperations = []string{http.MethodPost, http.MethodPut, http.MethodDelete}
 
 	// ErrBodyMessage is used for when a post/put request does not contain a body in request
 	ErrBodyMessage = errors.New("Must have body")
@@ -31,6 +41,21 @@ var (
 	// ErrServerMessage is used when there is a server error
 	ErrServerMessage = errors.New("Server error, please try again later")
 )
+
+// func CheckBodyAndDecode(req *http.Request, form interface{}) error {
+// 	if req.Body != nil {
+// 		return ErrBodyMessage
+// 	}
+
+// 	dec := json.NewDecoder(req.Body)
+// 	err := dec.Decode(&form)
+
+// 	if err != nil {
+// 		return ErrInvalidJSON
+// 	}
+
+// 	return nil
+// }
 
 // LogError will take given error and append to log file given
 func LogError(err error, customMessage string, logFile string) error {
@@ -66,6 +91,7 @@ func CheckError(err error, customMessage string) {
 // ServerError takes given err along with customMessage and writes back to client
 // then logs the error given the logFile
 func ServerError(w http.ResponseWriter, err error, customMessage string) {
+	CheckError(err, "Server Err:")
 	w.WriteHeader(http.StatusInternalServerError)
 
 	if customMessage != "" {
@@ -92,6 +118,7 @@ func HasServerError(w http.ResponseWriter, err error, customMessage string) bool
 // If err is not nil, returns true else false
 func HasFormErrors(w http.ResponseWriter, err error) bool {
 	if err != nil {
+		CheckError(err, "Form Err:")
 		payload, ok := err.(validation.Errors)
 
 		if ok {
@@ -156,6 +183,7 @@ func HasBodyError(w http.ResponseWriter, r *http.Request) bool {
 // Else return false
 func HasDecodeError(w http.ResponseWriter, err error) bool {
 	if err != nil {
+		CheckError(err, "Decode Err:")
 		w.WriteHeader(http.StatusNotAcceptable)
 		w.Write([]byte(ErrInvalidJSON.Error()))
 		return true
@@ -184,6 +212,7 @@ func HasQueryError(w http.ResponseWriter, err error, notFoundMessage string) boo
 
 func HasQueryOrServerError(w http.ResponseWriter, err error, notFoundMessage, serverErrorMessage string) bool {
 	if err == sql.ErrNoRows {
+		CheckError(err, "")
 		w.WriteHeader(http.StatusNotFound)
 		w.Write([]byte(notFoundMessage))
 		return true

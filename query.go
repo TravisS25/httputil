@@ -25,6 +25,7 @@ type Scanner interface {
 type Rower interface {
 	Scanner
 	Next() bool
+	Columns() ([]string, error)
 }
 
 // Tx is for transaction related queries

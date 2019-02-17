@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/TravisS25/httputil/apiutil"
@@ -24,6 +25,15 @@ const (
 
 	ResponseErrorMessage = "Result values: %v;\n expected results: %v\n"
 )
+
+var (
+	True  = true
+	False = false
+)
+
+type id interface {
+	GetID() interface{}
+}
 
 // TestCase is config struct used in conjunction with
 // the RunTestCases function
@@ -55,10 +65,20 @@ type TestCase struct {
 	// proper things were written to the database.  Could also be used
 	// for clean up
 	PostResponseValidation func() error
+
+	PostResponseValidationV2 func(status int) error
 }
 
 type intIDResponse struct {
 	ID int `json:"id"`
+}
+
+func (i intIDResponse) GetID() interface{} {
+	return i.ID
+}
+
+type int64IDResponse struct {
+	ID int64 `json:"id,string"`
 }
 
 type filteredIntIDResponse struct {
@@ -66,9 +86,105 @@ type filteredIntIDResponse struct {
 	Count int             `json:"count"`
 }
 
+type filteredInt64IDResponse struct {
+	Data  []int64IDResponse `json:"data"`
+	Count int               `json:"count"`
+}
+
 type Response struct {
 	ExpectedResult       interface{}
 	ValidateResponseFunc func(bodyResponse io.Reader, expectedResult interface{}) error
+}
+
+func RunTestCasesV2(t *testing.T, deferFunc func(testName string), testCases []TestCase) {
+	for _, testCase := range testCases {
+		t.Run(testCase.TestName, func(v *testing.T) {
+			panicked := true
+			defer func() {
+				if deferFunc != nil {
+					if panicked {
+						deferFunc(testCase.TestName)
+					}
+				}
+			}()
+			var req *http.Request
+			var err error
+
+			// If Form option is nil, init req without added parameters
+			// Else json encode given form and apply to request
+			if testCase.Form == nil {
+				req, err = http.NewRequest(testCase.Method, testCase.RequestURL, nil)
+			} else {
+				var buffer bytes.Buffer
+				encoder := json.NewEncoder(&buffer)
+				encoder.Encode(&testCase.Form)
+				req, err = http.NewRequest(testCase.Method, testCase.RequestURL, &buffer)
+			}
+
+			if err != nil {
+				v.Fatal(err)
+			}
+
+			// If ContextValues is not nil, apply given context values to req
+			if testCase.ContextValues != nil {
+				ctx := req.Context()
+
+				for key, value := range testCase.ContextValues {
+					ctx = context.WithValue(ctx, key, value)
+				}
+
+				req = req.WithContext(ctx)
+			}
+
+			// Init recorder that will be written to based on the status
+			// we get from created request
+			rr := httptest.NewRecorder()
+			testCase.Handler.ServeHTTP(rr, req)
+
+			// If status is not what was expected, print error
+			if status := rr.Code; status != testCase.ExpectedStatus {
+				v.Errorf("got status %d; want %d\n", status, testCase.ExpectedStatus)
+				v.Errorf("body response: %s\n", rr.Body.String())
+			}
+
+			// If ExpectedBody option was given and does not equal what was
+			// returned, print error
+			if testCase.ExpectedBody != "" {
+				if testCase.ExpectedBody != rr.Body.String() {
+					v.Errorf("got body %s; want %s\n", rr.Body.String(), testCase.ExpectedBody)
+					apiutil.CheckError(err, "")
+				}
+			}
+
+			if testCase.ValidateResponse.ValidateResponseFunc != nil {
+				err = testCase.ValidateResponse.ValidateResponseFunc(
+					rr.Body,
+					testCase.ValidateResponse.ExpectedResult,
+				)
+
+				if err != nil {
+					v.Errorf(err.Error() + "\n")
+					apiutil.CheckError(err, "")
+				}
+			}
+
+			if testCase.PostResponseValidation != nil {
+				if err = testCase.PostResponseValidation(); err != nil {
+					v.Errorf(err.Error() + "\n")
+					apiutil.CheckError(err, "")
+				}
+			}
+
+			if testCase.PostResponseValidationV2 != nil {
+				if err = testCase.PostResponseValidationV2(rr.Code); err != nil {
+					v.Errorf(err.Error() + "\n")
+					apiutil.CheckError(err, "")
+				}
+			}
+
+			panicked = false
+		})
+	}
 }
 
 // RunTestCases takes the given list of TestCase structs and loops through
@@ -121,6 +237,7 @@ func RunTestCases(t *testing.T, testCases []TestCase) {
 			if testCase.ExpectedBody != "" {
 				if testCase.ExpectedBody != rr.Body.String() {
 					v.Errorf("got body %s; want %s\n", rr.Body.String(), testCase.ExpectedBody)
+					apiutil.CheckError(err, "")
 				}
 			}
 
@@ -131,13 +248,15 @@ func RunTestCases(t *testing.T, testCases []TestCase) {
 				)
 
 				if err != nil {
-					v.Errorf(err.Error())
+					v.Errorf(err.Error() + "\n")
+					apiutil.CheckError(err, "")
 				}
 			}
 
 			if testCase.PostResponseValidation != nil {
 				if err = testCase.PostResponseValidation(); err != nil {
-					v.Errorf(err.Error())
+					v.Errorf(err.Error() + "\n")
+					apiutil.CheckError(err, "")
 				}
 			}
 		})
@@ -147,8 +266,58 @@ func RunTestCases(t *testing.T, testCases []TestCase) {
 func validateIDResponse(bodyResponse io.Reader, result interface{}, expectedResult interface{}) error {
 	foundResult := false
 
+	// intArrayFunc := func(convertedResults []id) error {
+	// 	expectedIDs := expectedResult.([]interface{})
+
+	// 	if len(convertedResults) != len(expectedIDs) {
+	// 		errorMessage := fmt.Sprintf(
+	// 			ResponseErrorMessage,
+	// 			convertedResults,
+	// 			expectedIDs,
+	// 		)
+	// 		return errors.New(errorMessage)
+	// 	}
+
+	// 	for _, m := range expectedIDs {
+	// 		for _, v := range convertedResults {
+	// 			if m == v.GetID() {
+	// 				foundResult = true
+	// 				break
+	// 			}
+	// 		}
+
+	// 		if foundResult == false {
+	// 			errorMessage := fmt.Sprintf(
+	// 				ResponseErrorMessage,
+	// 				convertedResults,
+	// 				expectedIDs,
+	// 			)
+	// 			return errors.New(errorMessage)
+	// 		}
+
+	// 		foundResult = false
+	// 	}
+
+	// 	return nil
+	// }
+
 	switch result.(type) {
 	case []intIDResponse:
+		// _, ok := expectedResult.([]int)
+
+		// if !ok {
+		// 	return errors.New("err: Expected result should be []int")
+		// }
+
+		// convertedResults := result.([]intIDResponse)
+		// err := SetJSONFromResponse(bodyResponse, &convertedResults)
+
+		// if err != nil {
+		// 	return err
+		// }
+
+		// intArrayFunc(convertedResults)
+
 		expectedIDs, ok := expectedResult.([]int)
 
 		if !ok {
@@ -156,6 +325,50 @@ func validateIDResponse(bodyResponse io.Reader, result interface{}, expectedResu
 		}
 
 		convertedResults := result.([]intIDResponse)
+		err := SetJSONFromResponse(bodyResponse, &convertedResults)
+
+		if err != nil {
+			return err
+		}
+
+		if len(convertedResults) != len(expectedIDs) {
+			errorMessage := fmt.Sprintf(
+				ResponseErrorMessage,
+				convertedResults,
+				expectedIDs,
+			)
+			return errors.New(errorMessage)
+		}
+
+		for _, m := range expectedIDs {
+			for _, v := range convertedResults {
+				if m == v.ID {
+					foundResult = true
+					break
+				}
+			}
+
+			if foundResult == false {
+				errorMessage := fmt.Sprintf(
+					ResponseErrorMessage,
+					convertedResults,
+					expectedIDs,
+				)
+				return errors.New(errorMessage)
+			}
+
+			foundResult = false
+		}
+		break
+
+	case []int64IDResponse:
+		expectedIDs, ok := expectedResult.([]int64)
+
+		if !ok {
+			return errors.New("err: Expected result should be []int64")
+		}
+
+		convertedResults := result.([]int64IDResponse)
 		err := SetJSONFromResponse(bodyResponse, &convertedResults)
 
 		if err != nil {
@@ -235,6 +448,49 @@ func validateIDResponse(bodyResponse io.Reader, result interface{}, expectedResu
 			foundResult = false
 		}
 		break
+	case filteredInt64IDResponse:
+		expectedIDs, ok := expectedResult.([]int64)
+
+		if !ok {
+			return errors.New("Expected result should be []int64")
+		}
+
+		convertedResults := result.(filteredInt64IDResponse)
+		err := SetJSONFromResponse(bodyResponse, &convertedResults)
+
+		if err != nil {
+			return err
+		}
+
+		if len(convertedResults.Data) != len(expectedIDs) {
+			errorMessage := fmt.Sprintf(
+				ResponseErrorMessage,
+				convertedResults.Data,
+				expectedIDs,
+			)
+			return errors.New(errorMessage)
+		}
+
+		for _, m := range expectedIDs {
+			for _, v := range convertedResults.Data {
+				if m == v.ID {
+					foundResult = true
+					break
+				}
+			}
+
+			if foundResult == false {
+				errorMessage := fmt.Sprintf(
+					ResponseErrorMessage,
+					convertedResults.Data,
+					expectedIDs,
+				)
+				return errors.New(errorMessage)
+			}
+
+			foundResult = false
+		}
+		break
 	case intIDResponse:
 		expectedID, ok := expectedResult.(int)
 
@@ -274,8 +530,18 @@ func ValidateFilteredIntArrayResponse(bodyResponse io.Reader, expectedResult int
 	return validateIDResponse(bodyResponse, result, expectedResult)
 }
 
+func ValidateFilteredInt64ArrayResponse(bodyResponse io.Reader, expectedResult interface{}) error {
+	result := filteredInt64IDResponse{}
+	return validateIDResponse(bodyResponse, result, expectedResult)
+}
+
 func ValidateIntArrayResponse(bodyResponse io.Reader, expectedResult interface{}) error {
 	resultIDs := make([]intIDResponse, 0)
+	return validateIDResponse(bodyResponse, resultIDs, expectedResult)
+}
+
+func ValidateInt64ArrayResponse(bodyResponse io.Reader, expectedResult interface{}) error {
+	resultIDs := make([]int64IDResponse, 0)
 	return validateIDResponse(bodyResponse, resultIDs, expectedResult)
 }
 
@@ -377,23 +643,15 @@ func NewFileUploadRequest(uri string, params map[string]string, paramName, path 
 	if err != nil {
 		return nil, err
 	}
-	fileContents, err := ioutil.ReadAll(file)
-	if err != nil {
-		return nil, err
-	}
-	fi, err := file.Stat()
-	if err != nil {
-		return nil, err
-	}
-	file.Close()
+	defer file.Close()
 
-	body := new(bytes.Buffer)
+	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
-	part, err := writer.CreateFormFile(paramName, fi.Name())
+	part, err := writer.CreateFormFile(paramName, filepath.Base(path))
 	if err != nil {
 		return nil, err
 	}
-	part.Write(fileContents)
+	_, err = io.Copy(part, file)
 
 	for key, val := range params {
 		_ = writer.WriteField(key, val)

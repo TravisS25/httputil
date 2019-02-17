@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/garyburd/redigo/redis"
+	"github.com/go-redis/redis"
 	"github.com/urfave/negroni"
 
 	"github.com/gorilla/securecookie"
@@ -162,7 +162,7 @@ func (m *Middleware) AuthMiddleware(w http.ResponseWriter, r *http.Request, next
 				// Here we test to see if our session backend is responsive
 				// If it is, that means current user logged in while cache was down
 				// and was using the database to grab their sessions but since session
-				// backend is back up, we can set grab current user's session from
+				// backend is back up, we can grab current user's session from
 				// database and set it to session backend and use that instead of database
 				// for future requests
 				if _, err = m.SessionStore.Ping(); err == nil {
@@ -236,7 +236,7 @@ func (m *Middleware) GroupMiddleware(w http.ResponseWriter, r *http.Request, nex
 		groupBytes, err := m.CacheStore.Get(groups)
 
 		if err != nil {
-			if err != redis.ErrNil {
+			if err != redis.Nil {
 				if m.DB != nil && m.QueryDB != nil {
 					fmt.Printf("group middleware db\n")
 					groupBytes, err = m.QueryDB(r, m.DB, GroupQuery)
@@ -305,7 +305,7 @@ func (m *Middleware) RoutingMiddleware(w http.ResponseWriter, r *http.Request, n
 			urlBytes, err := m.CacheStore.Get(key)
 
 			if err != nil {
-				if err != redis.ErrNil {
+				if err != redis.Nil {
 					if m.DB != nil && m.QueryDB != nil {
 						fmt.Printf("routing middleware db\n")
 						urlBytes, err = m.QueryDB(r, m.DB, RoutingQuery)

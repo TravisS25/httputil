@@ -39,6 +39,94 @@ type FormTestCase struct {
 	PostExecute func()
 }
 
+func RunFormTestsV2(t *testing.T, deferFunc func(testName string), formTests []FormTestCase) {
+	for _, formTest := range formTests {
+		t.Run(formTest.TestName, func(t *testing.T) {
+			panicked := true
+			defer func() {
+				if deferFunc != nil {
+					if panicked {
+						deferFunc(formTest.TestName)
+					}
+				}
+			}()
+			err := formTest.FormValidator.Validate(formTest.Form)
+
+			if err != nil {
+				if formTest.IsValidForm {
+					//hasError = true
+					t.Errorf("Should be valid form; got %s\n", err)
+					fmt.Println(formTest.Form)
+				}
+
+				validationErrors, ok := err.(validation.Errors)
+
+				if !ok {
+					t.Errorf(err.Error())
+				} else {
+					for key, expectedVal := range formTest.ValidationErrors {
+						if val, ok := validationErrors[key]; ok {
+							if val.Error() != expectedVal {
+								//hasError = true
+								t.Errorf("%s did not throw \"%s\" err \n", key, val)
+							}
+						} else {
+							//hasError = true
+							t.Errorf("Did not find %s in validation error map\n", key)
+						}
+					}
+
+					if len(formTest.ValidationErrors) != len(validationErrors) {
+						t.Errorf(
+							"Given validation errors(%d) does not match actual error count(%d) \n",
+							len(formTest.ValidationErrors),
+							len(validationErrors),
+						)
+
+						keyList := make([]string, 0)
+
+						if len(formTest.ValidationErrors) > len(validationErrors) {
+							for k, v := range formTest.ValidationErrors {
+								if _, ok := validationErrors[k]; !ok {
+									errString := k + ": " + v + ";"
+									keyList = append(keyList, errString)
+								}
+							}
+
+							t.Errorf("Keys found in 'ValidationErrors' errors not in form errors - %v", keyList)
+
+						} else {
+							for k, v := range validationErrors {
+								if _, ok := formTest.ValidationErrors[k]; !ok {
+									errString := k + ": " + v.Error() + ";"
+									keyList = append(keyList, errString)
+								}
+							}
+
+							t.Errorf("Keys found in form errors not in 'ValidationErrors' errors - %v", keyList)
+						}
+
+						// t.Errorf("Given errors - %s\n", formTest.ValidationErrors)
+						// t.Errorf("Form errors - %s\n", validationErrors)
+					}
+				}
+
+			} else {
+				if !formTest.IsValidForm {
+					//hasError = true
+					t.Errorf("Should have thrown some type of error\n")
+				}
+			}
+
+			if formTest.PostExecute != nil {
+				formTest.PostExecute()
+			}
+
+			panicked = false
+		})
+	}
+}
+
 func RunFormTests(t *testing.T, formTests []FormTestCase) {
 	for _, formTest := range formTests {
 		t.Run(formTest.TestName, func(t *testing.T) {

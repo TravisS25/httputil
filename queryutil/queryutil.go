@@ -4,11 +4,13 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"regexp"
 	"strconv"
 
 	"github.com/TravisS25/httputil"
+	"github.com/TravisS25/httputil/apiutil"
 	"github.com/TravisS25/httputil/dbutil"
 	"github.com/knq/snaker"
 
@@ -645,6 +647,76 @@ func InQueryRebind(bindType int, query string, args ...interface{}) (string, []i
 
 	query = sqlx.Rebind(bindType, query)
 	return query, args, nil
+}
+
+func GetRowerResults(rower httputil.Rower) ([]interface{}, error) {
+	var err error
+	columns, err := rower.Columns()
+
+	if err != nil {
+		return nil, err
+	}
+
+	count := len(columns)
+	values := make([]interface{}, count)
+	valuePtrs := make([]interface{}, count)
+	rows := make([]interface{}, 0)
+
+	for rower.Next() {
+
+		for i := range columns {
+			valuePtrs[i] = &values[i]
+		}
+
+		err = rower.Scan(valuePtrs...)
+
+		if err != nil {
+			return nil, err
+		}
+
+		row := make(map[string]interface{}, 0)
+
+		for i := range columns {
+			var v interface{}
+
+			val := values[i]
+
+			switch val.(type) {
+			case int64:
+				// fmt.Printf("int64 type\n")
+				// fmt.Printf("column name: %s\n", columns[i])
+				v = strconv.FormatInt(val.(int64), apiutil.IntBase)
+			default:
+				v = val
+			}
+
+			// b, ok := val.([]byte)
+
+			// if ok {
+			// 	v = string(b)
+			// } else {
+			// 	v = val
+			// }
+
+			row[columns[i]] = v
+		}
+
+		//fmt.Printf("row value: %v\n", row)
+
+		rows = append(rows, row)
+	}
+
+	return rows, nil
+}
+
+func HasFilterError(w http.ResponseWriter, err error) bool {
+	if err != nil {
+		w.WriteHeader(http.StatusNotAcceptable)
+		w.Write([]byte(err.Error()))
+		return true
+	}
+
+	return false
 }
 
 func replaceFields(filters []*Filter, fieldNames []string) ([]interface{}, error) {
