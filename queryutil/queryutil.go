@@ -690,18 +690,8 @@ func GetRowerResults(rower httputil.Rower) ([]interface{}, error) {
 				v = val
 			}
 
-			// b, ok := val.([]byte)
-
-			// if ok {
-			// 	v = string(b)
-			// } else {
-			// 	v = val
-			// }
-
 			row[columns[i]] = v
 		}
-
-		//fmt.Printf("row value: %v\n", row)
 
 		rows = append(rows, row)
 	}

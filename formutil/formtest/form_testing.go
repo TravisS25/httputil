@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/gorilla/mux"
+
 	"github.com/TravisS25/httputil/formutil"
 
 	validation "github.com/go-ozzo/ozzo-validation"
@@ -17,13 +19,16 @@ type FormRequestConfig struct {
 	// TestName is the name of current test - Required
 	TestName string
 
-	// Method is http method to use for request - Required
+	// Method is http method to use for request - Optional
 	Method string
 
-	// URL is uri you wish to request - Required
+	// URL is uri you wish to request - Optional
 	URL string
 
-	// Validate is interface for struct that will validate form - required
+	// Validatable is used for forms that validate themselves, generally inner forms - Optional
+	Validatable validation.Validatable
+
+	// Validate is interface for struct that will validate form - Optional
 	Validator formutil.RequestValidator
 
 	// Form is form values to use to inject into request - Required
@@ -32,6 +37,9 @@ type FormRequestConfig struct {
 	// Instance is instance of a model in which a form might need, usually
 	// on an edit request - Optional
 	Instance interface{}
+
+	// RouterValues is used to inject router variables into the request - Optional
+	RouterValues map[string]string
 
 	// ContextValues are context#Context to use for request - Optional
 	ContextValues map[interface{}]interface{}
@@ -42,7 +50,7 @@ type FormRequestConfig struct {
 
 	// ValidationErrors is a map of what errors you expect to return from test
 	// The key is the json name of the field and value is the error message the
-	// field should return - Required
+	// field should return - Optional
 	ValidationErrors map[string]string
 
 	InternalError string
@@ -89,72 +97,71 @@ type FormTestCase struct {
 	InternalError string
 }
 
-func RunFormTests(t *testing.T, formTests []FormTestCase) {
-	for _, formTest := range formTests {
-		t.Run(formTest.TestName, func(t *testing.T) {
-			validateFormTests(t, formTest)
-		})
-	}
-}
-
-func RunRequestFormTests(t *testing.T, deferFunc func(), formTests []FormRequestConfig) {
+func RunRequestFormTests(t *testing.T, deferFunc func() error, formTests []FormRequestConfig) {
 	for _, formTest := range formTests {
 		if formTest.TestName == "" {
 			t.Fatalf("TestName required")
 		}
+		if formTest.Validatable == nil && formTest.Validator == nil {
+			t.Fatalf("Validatable or Validator is required")
+		}
 		if formTest.Method == "" {
-			t.Fatalf("Method required")
+			formTest.Method = http.MethodGet
 		}
 		if formTest.URL == "" {
-			t.Fatalf("URL required")
+			formTest.URL = "/url"
 		}
-		if formTest.Validator == nil {
-			t.Fatalf("Validator required")
-		}
-		if formTest.Form == nil {
-			t.Fatalf("Form required")
-		}
+
 		t.Run(formTest.TestName, func(t *testing.T) {
+			var formErr error
+
 			panicked := true
 			defer func() {
-				if deferFunc != nil {
-					if panicked {
-						deferFunc()
+				if deferFunc != nil && panicked {
+					err := deferFunc()
+
+					if err != nil {
+						fmt.Printf("deferFunc: " + err.Error())
 					}
 				}
 			}()
 
-			jsonBytes, err := json.Marshal(&formTest.Form)
+			if formTest.Validatable != nil {
+				formErr = formTest.Validatable.Validate()
+			} else {
+				jsonBytes, err := json.Marshal(&formTest.Form)
 
-			if err != nil {
-				t.Fatalf(err.Error())
-			}
-
-			buf := bytes.NewBuffer(jsonBytes)
-			req, err := http.NewRequest(formTest.Method, formTest.URL, buf)
-
-			if err != nil {
-				t.Fatalf(err.Error())
-			}
-
-			if formTest.ContextValues != nil {
-				ctx := req.Context()
-
-				for key, value := range formTest.ContextValues {
-					ctx = context.WithValue(ctx, key, value)
+				if err != nil {
+					t.Fatalf(err.Error())
 				}
 
-				req = req.WithContext(ctx)
+				buf := bytes.NewBuffer(jsonBytes)
+				req, err := http.NewRequest(formTest.Method, formTest.URL, buf)
+
+				if err != nil {
+					t.Fatalf(err.Error())
+				}
+
+				if formTest.ContextValues != nil {
+					ctx := req.Context()
+
+					for key, value := range formTest.ContextValues {
+						ctx = context.WithValue(ctx, key, value)
+					}
+
+					req = req.WithContext(ctx)
+				}
+
+				req = mux.SetURLVars(req, formTest.RouterValues)
+				_, formErr = formTest.Validator.Validate(req, formTest.Instance)
 			}
 
-			_, err = formTest.Validator.Validate(req, formTest.Instance)
-
-			if err == nil {
+			if formErr == nil {
 				if formTest.ValidationErrors != nil {
 					t.Errorf("Form has no errors, but 'ValidationErrors' was passed\n")
 				}
 			} else {
-				if validationErrors, ok := err.(validation.Errors); ok {
+				if validationErrors, ok := formErr.(validation.Errors); ok {
 					containsErr := false
 					for key, expectedVal := range formTest.ValidationErrors {
 						if val, valid := validationErrors[key]; valid {
@@ -179,19 +186,28 @@ func RunRequestFormTests(t *testing.T, deferFunc func(), formTests []FormRequest
 						} else {
 							for k, v := range validationErrors {
 								if _, ok := formTest.ValidationErrors[k]; !ok {
+									//t.Errorf("heeeey type: %v", validationErrors["invoiceItems"]["0"])
 									t.Errorf("Key \"%s\" found in form errors that is not in \"ValidationErrors\"\n  Threw err: %s", k, v.Error())
 								}
 							}
 						}
 					}
 				} else {
-					if formTest.InternalError != err.Error() {
-						t.Errorf("Internal Error: %s\n", err.Error())
+					if formTest.InternalError != formErr.Error() {
+						t.Errorf("Internal Error: %s\n", formErr.Error())
 					}
 				}
 			}
 
 			panicked = false
+		})
+	}
+}
+
+func RunFormTests(t *testing.T, formTests []FormTestCase) {
+	for _, formTest := range formTests {
+		t.Run(formTest.TestName, func(t *testing.T) {
+			validateFormTests(t, formTest)
 		})
 	}
 }

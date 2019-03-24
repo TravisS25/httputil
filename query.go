@@ -42,6 +42,11 @@ type Transaction interface {
 	Commit(tx Tx) error
 }
 
+type QueryTransaction interface {
+	Transaction
+	Querier
+}
+
 // XODB allows to query rows but also exec statement against database
 type XODB interface {
 	Querier

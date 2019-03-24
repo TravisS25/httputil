@@ -32,6 +32,11 @@ var (
 )
 
 var (
+	// AllowCacheConfig is global flag that should only be switched to false for testing purposes
+	// If this flag is set to false, it will skip getting things from cache for any
+	// of the validate functions below
+	// The purpose of this is to simulate your cache backend failing and being forced
+	// to use database for data
 	AllowCacheConfig = true
 )
 
@@ -51,15 +56,15 @@ const (
 )
 
 const (
-	RequiredTxt      = "Required"
-	MustBeUniqueTxt  = "Must be unique"
-	AlreadyExistsTxt = "Already exists"
-	DoesNotExistTxt  = "Does not exist"
-	InvalidTxt       = "Invalid"
-	InvalidFormatTxt = "Invalid format"
-	// InvalidDateFormatTxt = "Invalid date format"
+	RequiredTxt = "Required"
+	//MustBeUniqueTxt      = "Must be unique"
+	AlreadyExistsTxt     = "Already exists"
+	DoesNotExistTxt      = "Does not exist"
+	InvalidTxt           = "Invalid"
+	InvalidFormatTxt     = "Invalid format"
 	InvalidFutureDateTxt = "Date can't be after current date/time"
 	InvalidPastDateTxt   = "Date can't be before current date/time"
+	CantBeNegativeTxt    = "Can't be negative"
 )
 
 //----------------------- INTERFACES ------------------------------
@@ -138,35 +143,17 @@ type CockroachFormSelection struct {
 	Value int64  `json:"value,string"`
 }
 
+//----------------------- VALIDATION RULES ------------------------------
+
 // FormValidation is the main struct that other structs will
 // embed to validate json data.  It is also the struct that
 // implements SetQuerier and SetCache of Form interface
 type FormValidation struct {
-	// DB    httputil.Querier
-	// Cache cacheutil.CacheStore
+	Entity httputil.Entity
+	Cache  cacheutil.CacheStore
 
 	db    httputil.Querier
 	cache cacheutil.CacheStore
-}
-
-// GetQuerier returns httputil.Querier
-func (f *FormValidation) GetQuerier() httputil.Querier {
-	return f.db
-}
-
-// GetCache returns cacheutil.CacheStore
-func (f *FormValidation) GetCache() cacheutil.CacheStore {
-	return f.cache
-}
-
-// SetQuerier sets httputil.Querier
-func (f *FormValidation) SetQuerier(querier httputil.Querier) {
-	f.db = querier
-}
-
-// SetCache sets cacheutil.CacheStore
-func (f *FormValidation) SetCache(cache cacheutil.CacheStore) {
-	f.cache = cache
 }
 
 // IsValid returns *validRule based on isValid parameter
@@ -233,6 +220,7 @@ func (f *FormValidation) ValidateUniqueness(
 	querier httputil.Querier,
 	cacheConfig *cacheutil.CacheValidateConfig,
 	instanceValue interface{},
+	placeHolderPosition,
 	bindVar int,
 	query string,
 	args ...interface{},
@@ -246,6 +234,45 @@ func (f *FormValidation) ValidateUniqueness(
 		args:          args,
 		message:       AlreadyExistsTxt,
 	}
+}
+
+func (f *FormValidation) ValidateExists(
+	querier httputil.Querier,
+	cacheConfig *cacheutil.CacheValidateConfig,
+	placeHolderPosition,
+	bindVar int,
+	query string,
+	args ...interface{},
+) *validateExistsRule {
+	return &validateExistsRule{
+		querier:             querier,
+		cacheConfig:         cacheConfig,
+		placeHolderPosition: placeHolderPosition,
+		bindVar:             bindVar,
+		query:               query,
+		args:                args,
+		message:             DoesNotExistTxt,
+	}
+}
+
+// GetQuerier returns httputil.Querier
+func (f *FormValidation) GetQuerier() httputil.Querier {
+	return f.db
+}
+
+// GetCache returns cacheutil.CacheStore
+func (f *FormValidation) GetCache() cacheutil.CacheStore {
+	return f.cache
+}
+
+// SetQuerier sets httputil.Querier
+func (f *FormValidation) SetQuerier(querier httputil.Querier) {
+	f.db = querier
+}
+
+// SetCache sets cacheutil.CacheStore
+func (f *FormValidation) SetCache(cache cacheutil.CacheStore) {
+	f.cache = cache
 }
 
 // RequiredError is wrapper for the field parameter
@@ -332,7 +359,13 @@ func (f *FormValidation) ValidIDs(query string, args ...interface{}) (bool, erro
 // Else return false
 func (f *FormValidation) Exists(query string, args ...interface{}) (bool, error) {
 	var filler string
-	err := f.db.QueryRow(query, args...).Scan(&filler)
+	var err error
+
+	if f.Entity != nil {
+		err = f.Entity.QueryRow(query, args...).Scan(&filler)
+	} else {
+		err = f.db.QueryRow(query, args...).Scan(&filler)
+	}
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -346,17 +379,17 @@ func (f *FormValidation) Exists(query string, args ...interface{}) (bool, error)
 }
 
 type validateDateRule struct {
-	compareWithTime bool
-	layout          string
-	timezone        string
-	canBeFuture     bool
-	canBePast       bool
-	internalError   validation.InternalError
+	layout        string
+	timezone      string
+	canBeFuture   bool
+	canBePast     bool
+	internalError validation.InternalError
 }
 
 func (v *validateDateRule) Validate(value interface{}) error {
-	if v.internalError != nil {
-		return v.internalError
+	_, isNil := validation.Indirect(value)
+	if validation.IsEmpty(value) || isNil {
+		return nil
 	}
 
 	var currentTime *time.Time
@@ -454,28 +487,103 @@ func (v *validRule) Error(message string) *validRule {
 	}
 }
 
+type validateExistsRule struct {
+	querier             httputil.Querier
+	cacheConfig         *cacheutil.CacheValidateConfig
+	args                []interface{}
+	query               string
+	bindVar             int
+	placeHolderPosition int
+	message             string
+}
+
+func (v *validateExistsRule) Validate(value interface{}) error {
+	var err error
+	var filler string
+
+	_, isNil := validation.Indirect(value)
+	if validation.IsEmpty(value) || isNil {
+		return nil
+	}
+
+	args := make([]interface{}, 0)
+
+	if v.cacheConfig != nil && AllowCacheConfig {
+		exists, err := v.cacheConfig.Cache.HasKey(v.cacheConfig.Key)
+
+		if err != nil && err != redis.Nil {
+			return validation.NewInternalError(err)
+		}
+
+		if !exists {
+			return errors.New(v.message)
+		}
+
+		return nil
+	}
+
+	if len(v.args) != 0 {
+		args = append(args, v.args...)
+	}
+
+	args = httputil.InsertAt(args, value, v.placeHolderPosition)
+
+	q, arguments, err := queryutil.InQueryRebind(sqlx.DOLLAR, v.query, args...)
+	if err != nil {
+		return validation.NewInternalError(err)
+	}
+
+	err = v.querier.QueryRow(q, arguments...).Scan(&filler)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return errors.New(v.message)
+		}
+
+		return validation.NewInternalError(err)
+	}
+
+	return nil
+}
+
+func (v *validateExistsRule) Error(message string) *validateExistsRule {
+	return &validateExistsRule{
+		querier:     v.querier,
+		cacheConfig: v.cacheConfig,
+		args:        v.args,
+		query:       v.query,
+		bindVar:     v.bindVar,
+		message:     message,
+	}
+}
+
 type validateUniquenessRule struct {
-	querier       httputil.Querier
-	cacheConfig   *cacheutil.CacheValidateConfig
-	args          []interface{}
-	formValue     interface{}
-	instanceValue interface{}
-	query         string
-	bindVar       int
-	message       string
+	querier             httputil.Querier
+	cacheConfig         *cacheutil.CacheValidateConfig
+	args                []interface{}
+	formValue           interface{}
+	instanceValue       interface{}
+	query               string
+	bindVar             int
+	message             string
+	placeHolderPosition int
 }
 
 func (v *validateUniquenessRule) Validate(value interface{}) error {
 	var err error
 	var filler string
 
-	alreadyExists := false
-	args := make([]interface{}, 0)
-	args = append(args, value)
+	_, isNil := validation.Indirect(value)
+	if validation.IsEmpty(value) || isNil {
+		return nil
+	}
 
 	if v.instanceValue == value {
 		return nil
 	}
+
+	alreadyExists := false
+	args := make([]interface{}, 0)
 
 	if v.cacheConfig != nil {
 		alreadyExists, err = v.cacheConfig.Cache.HasKey(v.cacheConfig.Key)
@@ -495,8 +603,9 @@ func (v *validateUniquenessRule) Validate(value interface{}) error {
 		args = append(args, v.args...)
 	}
 
-	q, arguments, err := queryutil.InQueryRebind(sqlx.DOLLAR, v.query, args...)
+	args = httputil.InsertAt(args, value, v.placeHolderPosition)
 
+	q, arguments, err := queryutil.InQueryRebind(sqlx.DOLLAR, v.query, args...)
 	if err != nil {
 		return validation.NewInternalError(err)
 	}
@@ -516,12 +625,15 @@ func (v *validateUniquenessRule) Validate(value interface{}) error {
 
 func (v *validateUniquenessRule) Error(message string) *validateUniquenessRule {
 	return &validateUniquenessRule{
-		message:       message,
-		querier:       v.querier,
-		bindVar:       v.bindVar,
-		query:         v.query,
-		args:          v.args,
-		instanceValue: v.instanceValue,
+		querier:             v.querier,
+		cacheConfig:         v.cacheConfig,
+		args:                v.args,
+		formValue:           v.formValue,
+		instanceValue:       v.instanceValue,
+		query:               v.query,
+		bindVar:             v.bindVar,
+		message:             message,
+		placeHolderPosition: v.placeHolderPosition,
 	}
 }
 
@@ -543,11 +655,14 @@ func (v *validateIDsRule) Validate(value interface{}) error {
 	var singleVal interface{}
 	emptySlice := false
 
-	if v.internalError != nil {
-		return v.internalError
+	_, isNil := validation.Indirect(value)
+	if validation.IsEmpty(value) || isNil {
+		return nil
 	}
 
-	tempArgs := make([]interface{}, 0)
+	// fmt.Printf("value: %v\n", value)
+	// fmt.Printf("value foo: %v\n", test)
+
 	args := make([]interface{}, 0)
 
 	switch value.(type) {
@@ -562,7 +677,7 @@ func (v *validateIDsRule) Validate(value interface{}) error {
 				ids = append(ids, v.Value())
 			}
 
-			tempArgs = append(args, ids)
+			//tempArgs = append(args, ids)
 		} else {
 			emptySlice = true
 		}
@@ -577,14 +692,13 @@ func (v *validateIDsRule) Validate(value interface{}) error {
 				ids = append(ids, v)
 			}
 
-			tempArgs = append(args, ids)
+			//tempArgs = append(args, ids)
 		} else {
 			emptySlice = true
 		}
 	default:
 		expectedLen = 1
 		singleVal = value
-		//tempArgs = append(tempArgs, value)
 	}
 
 	// If type is slice and is empty, simply return nil as we will get an error
@@ -597,8 +711,8 @@ func (v *validateIDsRule) Validate(value interface{}) error {
 		args = append(args, v.args...)
 	}
 
-	if len(tempArgs) > 0 {
-		args = httputil.InsertAt(args, tempArgs, v.placeHolderPosition-1)
+	if len(ids) > 0 {
+		args = httputil.InsertAt(args, ids, v.placeHolderPosition-1)
 	} else {
 		args = httputil.InsertAt(args, singleVal, v.placeHolderPosition-1)
 	}
@@ -612,8 +726,13 @@ func (v *validateIDsRule) Validate(value interface{}) error {
 	queryFunc := func() error {
 		rower, err := v.querier.Query(q, arguments...)
 
+		// fmt.Printf("query: %s\n", q)
+		// fmt.Printf("args: %v\n", arguments)
+
 		if err != nil {
-			return validation.NewInternalError(err)
+			return validation.NewInternalError(fmt.Errorf(
+				"query: %s  err: %s", q, err.Error()),
+			)
 		}
 
 		counter := 0
@@ -708,7 +827,7 @@ func initRegexExpressions() {
 
 func HasFormErrors(w http.ResponseWriter, err error) bool {
 	if err != nil {
-		httputil.CheckError(err, "")
+		//httputil.CheckError(err, "")
 		switch err {
 		case ErrBodyMessage:
 			w.WriteHeader(http.StatusNotAcceptable)
@@ -733,15 +852,17 @@ func HasFormErrors(w http.ResponseWriter, err error) bool {
 }
 
 func CheckBodyAndDecode(req *http.Request, form interface{}) error {
-	if req.Body == nil {
-		return ErrBodyMessage
-	}
+	if req.Body != nil {
+		dec := json.NewDecoder(req.Body)
+		err := dec.Decode(&form)
 
-	dec := json.NewDecoder(req.Body)
-	err := dec.Decode(&form)
-
-	if err != nil {
-		return ErrInvalidJSON
+		if err != nil {
+			return ErrInvalidJSON
+		}
+	} else {
+		if req.Method == http.MethodDelete {
+			return ErrBodyMessage
+		}
 	}
 
 	return nil

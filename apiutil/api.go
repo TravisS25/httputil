@@ -19,6 +19,10 @@ import (
 )
 
 const (
+	PostResponseFormat = "Got %v; should be %v"
+)
+
+const (
 	IntBase    = 10
 	IntBitSize = 64
 )
@@ -41,21 +45,6 @@ var (
 	// ErrServerMessage is used when there is a server error
 	ErrServerMessage = errors.New("Server error, please try again later")
 )
-
-// func CheckBodyAndDecode(req *http.Request, form interface{}) error {
-// 	if req.Body != nil {
-// 		return ErrBodyMessage
-// 	}
-
-// 	dec := json.NewDecoder(req.Body)
-// 	err := dec.Decode(&form)
-
-// 	if err != nil {
-// 		return ErrInvalidJSON
-// 	}
-
-// 	return nil
-// }
 
 // LogError will take given error and append to log file given
 func LogError(err error, customMessage string, logFile string) error {

@@ -1,12 +1,39 @@
 package cacheutil
 
 import (
+	"errors"
 	"time"
 
 	"github.com/go-redis/redis"
 	"github.com/gorilla/sessions"
 	redistore "gopkg.in/boj/redistore.v1"
 )
+
+var (
+	ErrMockCache = errors.New("mockcache: testing")
+)
+
+type MockCache struct {
+	GetFunc    func(key string) ([]byte, error)
+	HasKeyFunc func(key string) (bool, error)
+}
+
+func (m MockCache) Get(key string) ([]byte, error) {
+	if m.GetFunc == nil {
+		return nil, errors.New("mockcache: testing")
+	}
+
+	return m.GetFunc(key)
+}
+func (m MockCache) Set(key string, value interface{}, expiration time.Duration) {}
+func (m MockCache) Del(keys ...string)                                          {}
+func (m MockCache) HasKey(key string) (bool, error) {
+	if m.HasKeyFunc == nil {
+		errors.New("mockcache: testing")
+	}
+
+	return m.HasKeyFunc(key)
+}
 
 // CacheStore is interface used to get, set and delete cached values
 // from structs that implement it

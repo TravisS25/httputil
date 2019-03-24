@@ -1,16 +1,21 @@
 package confutil
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
 	"regexp"
 
 	_ "github.com/lib/pq"
+	"github.com/pkg/errors"
 
 	yaml "gopkg.in/yaml.v2"
 )
 
 const (
+	// DateTimeMilliLayout is global format for date time with adding milliseconds for precise calculations
+	DateTimeMilliLayout = "2006-01-02 15:04:05.00000"
+
 	// DateTimeLayout is global format for date time
 	DateTimeLayout = "2006-01-02 15:04:05"
 
@@ -32,6 +37,9 @@ const (
 	GroupKey   = "%s-groups"
 	URLKey     = "%s-urls"
 	LockoutKey = "%s-lockout"
+
+	IntBase    = 10
+	IntBitSize = 64
 )
 
 var (
@@ -59,4 +67,10 @@ func ConfigSettings(envString string) *Settings {
 	}
 
 	return settings
+}
+
+// CheckError simply prints given error in verbose to stdout
+func CheckError(err error, customMessage string) {
+	err = errors.Wrap(err, customMessage)
+	fmt.Printf("%+v\n", err)
 }
