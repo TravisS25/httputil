@@ -24,7 +24,19 @@ const (
 	CookieHeader    = "Cookie"
 	SetCookieHeader = "Set-Cookie"
 
-	ResponseErrorMessage = "apitesting: Result values: %v;\n expected results: %v\n"
+	ResponseErrorMessage    = "apitesting: Result values: %v;\n expected results: %v\n"
+	MapResponseErrorMessage = "apitesting: Key value \"%s\":\n Result values: %v;\n expected results: %v\n"
+)
+
+const (
+	intMapIDResult = iota + 1
+	int64MapIDResult
+	intArrayIDResult
+	int64ArrayIDResult
+	intFilteredIDResult
+	int64FilteredIDResult
+	intObjectIDResult
+	int64ObjectIDResult
 )
 
 var (
@@ -68,30 +80,23 @@ type TestCase struct {
 	PostResponseValidation func() error
 }
 
-type intIDResponse struct {
+type intID struct {
 	ID int `json:"id"`
 }
 
-func (i intIDResponse) GetID() interface{} {
-	return i.ID
-}
-
-type Int64ID struct {
+type int64ID struct {
 	ID int64 `json:"id,string"`
 }
 
-type filteredIntIDResponse struct {
-	Data  []intIDResponse `json:"data"`
-	Count int             `json:"count"`
+type filteredIntID struct {
+	Data  []intID `json:"data"`
+	Count int     `json:"count"`
 }
 
-type filteredInt64IDResponse struct {
-	Data  []Int64ID `json:"data"`
+type filteredInt64ID struct {
+	Data  []int64ID `json:"data"`
 	Count int       `json:"count"`
 }
-
-type Int64MapID map[string]interface{}
-type Int64MapSliceID map[string]interface{}
 
 type Response struct {
 	ExpectedResult       interface{}
@@ -262,35 +267,35 @@ func RunTestCases(t *testing.T, testCases []TestCase) {
 	}
 }
 
-func validateIDResponse(bodyResponse io.Reader, result interface{}, expectedResult interface{}) error {
+func validateIDResponse(bodyResponse io.Reader, result int, expectedResults interface{}) error {
 	foundResult := false
 
-	switch result.(type) {
-	case []intIDResponse:
-		expectedIDs, ok := expectedResult.([]int)
+	switch result {
+	case intArrayIDResult:
+		expectedIDs, ok := expectedResults.([]int)
 
 		if !ok {
 			return errors.New("apitesting: Expected result should be []int")
 		}
 
-		convertedResults := result.([]intIDResponse)
-		err := SetJSONFromResponse(bodyResponse, &convertedResults)
+		var responseResults []intID
+		err := SetJSONFromResponse(bodyResponse, &responseResults)
 
 		if err != nil {
 			return err
 		}
 
-		if len(convertedResults) != len(expectedIDs) {
+		if len(responseResults) != len(expectedIDs) {
 			errorMessage := fmt.Sprintf(
 				ResponseErrorMessage,
-				convertedResults,
+				responseResults,
 				expectedIDs,
 			)
 			return errors.New(errorMessage)
 		}
 
 		for _, m := range expectedIDs {
-			for _, v := range convertedResults {
+			for _, v := range responseResults {
 				if m == v.ID {
 					foundResult = true
 					break
@@ -300,7 +305,7 @@ func validateIDResponse(bodyResponse io.Reader, result interface{}, expectedResu
 			if foundResult == false {
 				errorMessage := fmt.Sprintf(
 					ResponseErrorMessage,
-					convertedResults,
+					responseResults,
 					expectedIDs,
 				)
 				return errors.New(errorMessage)
@@ -310,31 +315,31 @@ func validateIDResponse(bodyResponse io.Reader, result interface{}, expectedResu
 		}
 		break
 
-	case []Int64ID:
-		expectedIDs, ok := expectedResult.([]int64)
+	case int64ArrayIDResult:
+		expectedIDs, ok := expectedResults.([]int64)
 
 		if !ok {
 			return errors.New("apitesting: Expected result should be []int64")
 		}
 
-		convertedResults := result.([]Int64ID)
-		err := SetJSONFromResponse(bodyResponse, &convertedResults)
+		var responseResults []int64ID
+		err := SetJSONFromResponse(bodyResponse, &responseResults)
 
 		if err != nil {
 			return err
 		}
 
-		if len(convertedResults) != len(expectedIDs) {
+		if len(responseResults) != len(expectedIDs) {
 			errorMessage := fmt.Sprintf(
 				ResponseErrorMessage,
-				convertedResults,
+				responseResults,
 				expectedIDs,
 			)
 			return errors.New(errorMessage)
 		}
 
 		for _, m := range expectedIDs {
-			for _, v := range convertedResults {
+			for _, v := range responseResults {
 				if m == v.ID {
 					foundResult = true
 					break
@@ -344,7 +349,7 @@ func validateIDResponse(bodyResponse io.Reader, result interface{}, expectedResu
 			if foundResult == false {
 				errorMessage := fmt.Sprintf(
 					ResponseErrorMessage,
-					convertedResults,
+					responseResults,
 					expectedIDs,
 				)
 				return errors.New(errorMessage)
@@ -354,31 +359,31 @@ func validateIDResponse(bodyResponse io.Reader, result interface{}, expectedResu
 		}
 		break
 
-	case filteredIntIDResponse:
-		expectedIDs, ok := expectedResult.([]int)
+	case intFilteredIDResult:
+		expectedIDs, ok := expectedResults.([]int)
 
 		if !ok {
 			return errors.New("apitesting: Expected result should be []int")
 		}
 
-		convertedResults := result.(filteredIntIDResponse)
-		err := SetJSONFromResponse(bodyResponse, &convertedResults)
+		var responseResults filteredIntID
+		err := SetJSONFromResponse(bodyResponse, &responseResults)
 
 		if err != nil {
 			return err
 		}
 
-		if len(convertedResults.Data) != len(expectedIDs) {
+		if len(responseResults.Data) != len(expectedIDs) {
 			errorMessage := fmt.Sprintf(
 				ResponseErrorMessage,
-				convertedResults.Data,
+				responseResults.Data,
 				expectedIDs,
 			)
 			return errors.New(errorMessage)
 		}
 
 		for _, m := range expectedIDs {
-			for _, v := range convertedResults.Data {
+			for _, v := range responseResults.Data {
 				if m == v.ID {
 					foundResult = true
 					break
@@ -388,7 +393,7 @@ func validateIDResponse(bodyResponse io.Reader, result interface{}, expectedResu
 			if foundResult == false {
 				errorMessage := fmt.Sprintf(
 					ResponseErrorMessage,
-					convertedResults.Data,
+					responseResults.Data,
 					expectedIDs,
 				)
 				return errors.New(errorMessage)
@@ -397,31 +402,31 @@ func validateIDResponse(bodyResponse io.Reader, result interface{}, expectedResu
 			foundResult = false
 		}
 		break
-	case filteredInt64IDResponse:
-		expectedIDs, ok := expectedResult.([]int64)
+	case int64FilteredIDResult:
+		expectedIDs, ok := expectedResults.([]int64)
 
 		if !ok {
 			return errors.New("apitesting: Expected result should be []int64")
 		}
 
-		convertedResults := result.(filteredInt64IDResponse)
-		err := SetJSONFromResponse(bodyResponse, &convertedResults)
+		var responseResults filteredInt64ID
+		err := SetJSONFromResponse(bodyResponse, &responseResults)
 
 		if err != nil {
 			return err
 		}
 
-		if len(convertedResults.Data) != len(expectedIDs) {
+		if len(responseResults.Data) != len(expectedIDs) {
 			errorMessage := fmt.Sprintf(
 				ResponseErrorMessage,
-				convertedResults.Data,
+				responseResults.Data,
 				expectedIDs,
 			)
 			return errors.New(errorMessage)
 		}
 
 		for _, m := range expectedIDs {
-			for _, v := range convertedResults.Data {
+			for _, v := range responseResults.Data {
 				if m == v.ID {
 					foundResult = true
 					break
@@ -431,7 +436,7 @@ func validateIDResponse(bodyResponse io.Reader, result interface{}, expectedResu
 			if foundResult == false {
 				errorMessage := fmt.Sprintf(
 					ResponseErrorMessage,
-					convertedResults.Data,
+					responseResults.Data,
 					expectedIDs,
 				)
 				return errors.New(errorMessage)
@@ -440,58 +445,58 @@ func validateIDResponse(bodyResponse io.Reader, result interface{}, expectedResu
 			foundResult = false
 		}
 		break
-	case intIDResponse:
-		expectedID, ok := expectedResult.(int)
+	case intObjectIDResult:
+		expectedID, ok := expectedResults.(int)
 
 		if !ok {
 			return errors.New("apitesting: Expected result should be int")
 		}
 
-		convertedResult := result.(intIDResponse)
-		err := SetJSONFromResponse(bodyResponse, &convertedResult)
+		var responseResults intID
+		err := SetJSONFromResponse(bodyResponse, &responseResults)
 
 		if err != nil {
 			return err
 		}
 
-		if convertedResult.ID != expectedID {
+		if responseResults.ID != expectedID {
 			errorMessage := fmt.Sprintf(
 				ResponseErrorMessage,
-				convertedResult.ID,
+				responseResults.ID,
 				expectedID,
 			)
 			return errors.New(errorMessage)
 		}
-	case Int64ID:
-		expectedID, ok := expectedResult.(int64)
+	case int64ObjectIDResult:
+		expectedID, ok := expectedResults.(int64)
 
 		if !ok {
 			return errors.New("apitesting: Expected result should be int64")
 		}
 
-		convertedResult := result.(Int64ID)
-		err := SetJSONFromResponse(bodyResponse, &convertedResult)
+		var responseResults int64ID
+		err := SetJSONFromResponse(bodyResponse, &responseResults)
 
 		if err != nil {
 			return err
 		}
 
-		if convertedResult.ID != expectedID {
+		if responseResults.ID != expectedID {
 			errorMessage := fmt.Sprintf(
 				ResponseErrorMessage,
-				convertedResult.ID,
+				responseResults.ID,
 				expectedID,
 			)
 			return errors.New(errorMessage)
 		}
-	case Int64MapID:
-		expectedMap, ok := expectedResult.(map[string]interface{})
+	case intMapIDResult:
+		expectedMap, ok := expectedResults.(map[string]interface{})
 
 		if !ok {
 			return errors.New("apitesting: Expected result should be map[string]interface{}")
 		}
 
-		responseResults := result.(map[string]interface{})
+		var responseResults map[string]interface{}
 		err := SetJSONFromResponse(bodyResponse, &responseResults)
 
 		if err != nil {
@@ -527,8 +532,8 @@ func validateIDResponse(bodyResponse io.Reader, result interface{}, expectedResu
 				// If interface{} value is struct, then convert convertedResults
 				// and expectedMap to typed json (Int64ID) to compare id
 				case reflect.Struct:
-					var expectedInt64ID Int64ID
-					var responseInt64ID Int64ID
+					var expectedIntID intID
+					var responseIntID intID
 
 					expectedIDBytes, err := json.Marshal(expectedMap[k])
 
@@ -544,21 +549,21 @@ func validateIDResponse(bodyResponse io.Reader, result interface{}, expectedResu
 						return errors.New(message)
 					}
 
-					err = json.Unmarshal(expectedIDBytes, &expectedInt64ID)
+					err = json.Unmarshal(expectedIDBytes, &expectedIntID)
 
 					if err != nil {
 						message := fmt.Sprintf("apitesting: %s", err.Error())
 						return errors.New(message)
 					}
 
-					err = json.Unmarshal(responseIDBytes, &responseInt64ID)
+					err = json.Unmarshal(responseIDBytes, &responseIntID)
 
 					if err != nil {
 						message := fmt.Sprintf("apitesting: %s", err.Error())
 						return errors.New(message)
 					}
 
-					if expectedInt64ID.ID != responseInt64ID.ID {
+					if expectedIntID.ID != responseIntID.ID {
 						errorMessage := fmt.Sprintf(
 							ResponseErrorMessage,
 							responseResults,
@@ -571,8 +576,8 @@ func validateIDResponse(bodyResponse io.Reader, result interface{}, expectedResu
 				// and expectedMap to typed json (int64MapSliceID) to then
 				// loop through and compare ids
 				case reflect.Slice:
-					var expectedInt64IDs []Int64ID
-					var responseInt64IDs []Int64ID
+					var expectedIntIDs []intID
+					var responseIntIDs []intID
 
 					expectedIDsBytes, err := json.Marshal(expectedMap[k])
 
@@ -588,24 +593,24 @@ func validateIDResponse(bodyResponse io.Reader, result interface{}, expectedResu
 						return errors.New(message)
 					}
 
-					err = json.Unmarshal(expectedIDsBytes, &expectedInt64IDs)
+					err = json.Unmarshal(expectedIDsBytes, &expectedIntIDs)
 
 					if err != nil {
 						message := fmt.Sprintf("apitesting: %s", err.Error())
 						return errors.New(message)
 					}
 
-					err = json.Unmarshal(responseIDsBytes, &responseInt64IDs)
+					err = json.Unmarshal(responseIDsBytes, &responseIntIDs)
 
 					if err != nil {
 						message := fmt.Sprintf("apitesting: %s", err.Error())
 						return errors.New(message)
 					}
 
-					for _, v := range expectedInt64IDs {
+					for _, v := range expectedIntIDs {
 						containsID := false
 
-						for _, t := range responseInt64IDs {
+						for _, t := range responseIntIDs {
 							if t.ID == v.ID {
 								containsID = true
 								break
@@ -629,6 +634,146 @@ func validateIDResponse(bodyResponse io.Reader, result interface{}, expectedResu
 				return errors.New(message)
 			}
 		}
+	case int64MapIDResult:
+		expectedMap, ok := expectedResults.(map[string]interface{})
+
+		if !ok {
+			return errors.New("apitesting: Expected result should be map[string]interface{}")
+		}
+
+		var responseResults map[string]interface{}
+		err := SetJSONFromResponse(bodyResponse, &responseResults)
+
+		if err != nil {
+			return err
+		}
+
+		if len(responseResults) != len(expectedMap) {
+			errorMessage := fmt.Sprintf(
+				ResponseErrorMessage,
+				responseResults,
+				expectedMap,
+			)
+			return errors.New(errorMessage)
+		}
+
+		// Loop through given expected map of values and check whether the key
+		// values are within the body response key values
+		//
+		// If key exists, determine through reflection if value is struct or
+		// slice and compare ids to determine if expected map value
+		// equals value of body response map
+		//
+		// If key does not exist, return err
+		for k := range expectedMap {
+			if responseVal, ok := responseResults[k]; ok {
+				// Determine kind for interface{} value so we can
+				// properly convert to typed json
+				if responseVal != nil {
+					// Determine kind for interface{} value so we can
+					// properly convert to typed json
+					switch reflect.TypeOf(responseVal).Kind() {
+					// If interface{} value is map, then convert convertedResults
+					// and expectedMap to typed json (int64ID) to compare id
+					case reflect.Map:
+						var responseInt64ID int64ID
+
+						expectedInt64, ok := expectedMap[k].(int64)
+
+						if !ok {
+							message := fmt.Sprintf(`apitesting: key value "%s" for "ExpectedResult" should be int64`, k)
+							return errors.New(message)
+						}
+
+						responseIDBytes, err := json.Marshal(responseVal)
+
+						if err != nil {
+							message := fmt.Sprintf("apitesting: %s", err.Error())
+							return errors.New(message)
+						}
+
+						err = json.Unmarshal(responseIDBytes, &responseInt64ID)
+
+						if err != nil {
+							message := fmt.Sprintf("apitesting: %s", err.Error())
+							return errors.New(message)
+						}
+
+						if expectedInt64 != responseInt64ID.ID {
+							errorMessage := fmt.Sprintf(
+								MapResponseErrorMessage,
+								k,
+								responseInt64ID.ID,
+								expectedInt64,
+							)
+							return errors.New(errorMessage)
+						}
+
+					// If interface{} value is slice, then convert body response
+					// and expectedMap to typed json (int64MapSliceID) to then
+					// loop through and compare ids
+					case reflect.Slice:
+						var responseInt64IDs []int64ID
+
+						expectedInt64Slice, ok := expectedMap[k].([]int64)
+
+						if !ok {
+							message := fmt.Sprintf(`apitesting: key value "%s" for "ExpectedResult" should be []int64`, k)
+							return errors.New(message)
+						}
+
+						responseIDsBytes, err := json.Marshal(responseVal)
+
+						if err != nil {
+							message := fmt.Sprintf("apitesting: %s", err.Error())
+							return errors.New(message)
+						}
+
+						err = json.Unmarshal(responseIDsBytes, &responseInt64IDs)
+
+						if err != nil {
+							message := fmt.Sprintf("apitesting: %s", err.Error())
+							return errors.New(message)
+						}
+
+						for _, v := range expectedInt64Slice {
+							containsID := false
+
+							for _, t := range responseInt64IDs {
+								if t.ID == v {
+									containsID = true
+									break
+								}
+							}
+
+							if !containsID {
+								message := fmt.Sprintf(
+									"apitesting: Slice response does not contain %d", v,
+								)
+								return errors.New(message)
+							}
+						}
+
+					// Id interface{} valie is neither struct or slice, then return err
+					default:
+						return errors.New("apitesting: not valid type")
+					}
+				} else {
+					if expectedMap[k] != nil {
+						errorMessage := fmt.Sprintf(
+							MapResponseErrorMessage,
+							k,
+							nil,
+							expectedMap[k],
+						)
+						return errors.New(errorMessage)
+					}
+				}
+			} else {
+				message := fmt.Sprintf(`apitesting: key value "%s" not in results from body`, k)
+				return errors.New(message)
+			}
+		}
 
 	default:
 		return errors.New("apitesting: Invalid result type passed")
@@ -637,34 +782,187 @@ func validateIDResponse(bodyResponse io.Reader, result interface{}, expectedResu
 	return nil
 }
 
-func ValidateObjectID64Response(bodyResponse io.Reader, expectedResult interface{}) error {
-	result := Int64ID{}
-	return validateIDResponse(bodyResponse, result, expectedResult)
-}
+// func validateMapID(result int, bodyResponse io.Reader, expectedResults interface{}) error {
+// 	expectedMap, ok := expectedResults.(map[string]interface{})
 
-func ValidateObjectIDResponse(bodyResponse io.Reader, expectedResult interface{}) error {
-	result := intIDResponse{}
-	return validateIDResponse(bodyResponse, result, expectedResult)
-}
+// 	if !ok {
+// 		return errors.New("apitesting: Expected result should be map[string]interface{}")
+// 	}
+
+// 	var responseResults map[string]interface{}
+// 	err := SetJSONFromResponse(bodyResponse, &responseResults)
+
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	if len(responseResults) != len(expectedMap) {
+// 		errorMessage := fmt.Sprintf(
+// 			ResponseErrorMessage,
+// 			responseResults,
+// 			expectedMap,
+// 		)
+// 		return errors.New(errorMessage)
+// 	}
+
+// 	// Loop through given expected map of values and check whether the key
+// 	// values are within the body response key values
+// 	//
+// 	// If key exists, determine through reflection if value is struct or
+// 	// slice and compare ids to determine if expected map value
+// 	// equals value of body response map
+// 	//
+// 	// If key does not exist, return err
+// 	for k := range expectedMap {
+// 		if responseVal, ok := responseResults[k]; ok {
+// 			// Get json bytes from body response
+// 			buf := bytes.Buffer{}
+// 			buf.ReadFrom(bodyResponse)
+
+// 			// Determine kind for interface{} value so we can
+// 			// properly convert to typed json
+// 			switch reflect.TypeOf(responseVal).Kind() {
+// 			// If interface{} value is struct, then convert convertedResults
+// 			// and expectedMap to typed json (Int64ID) to compare id
+// 			case reflect.Struct:
+// 				switch result {
+// 				case intMapIDResult:
+
+// 				default:
+
+// 				}
+
+// 				expectedIDBytes, err := json.Marshal(expectedMap[k])
+
+// 				if err != nil {
+// 					message := fmt.Sprintf("apitesting: %s", err.Error())
+// 					return errors.New(message)
+// 				}
+
+// 				responseIDBytes, err := json.Marshal(responseVal)
+
+// 				if err != nil {
+// 					message := fmt.Sprintf("apitesting: %s", err.Error())
+// 					return errors.New(message)
+// 				}
+
+// 				err = json.Unmarshal(expectedIDBytes, &expectedIntID)
+
+// 				if err != nil {
+// 					message := fmt.Sprintf("apitesting: %s", err.Error())
+// 					return errors.New(message)
+// 				}
+
+// 				err = json.Unmarshal(responseIDBytes, &responseIntID)
+
+// 				if err != nil {
+// 					message := fmt.Sprintf("apitesting: %s", err.Error())
+// 					return errors.New(message)
+// 				}
+
+// 				if expectedIntID.ID != responseIntID.ID {
+// 					errorMessage := fmt.Sprintf(
+// 						ResponseErrorMessage,
+// 						responseResults,
+// 						expectedMap,
+// 					)
+// 					return errors.New(errorMessage)
+// 				}
+
+// 			// If interface{} value is slice, then convert body response
+// 			// and expectedMap to typed json (int64MapSliceID) to then
+// 			// loop through and compare ids
+// 			case reflect.Slice:
+// 				var expectedIntIDs []intID
+// 				var responseIntIDs []intID
+
+// 				expectedIDsBytes, err := json.Marshal(expectedMap[k])
+
+// 				if err != nil {
+// 					message := fmt.Sprintf("apitesting: %s", err.Error())
+// 					return errors.New(message)
+// 				}
+
+// 				responseIDsBytes, err := json.Marshal(responseVal)
+
+// 				if err != nil {
+// 					message := fmt.Sprintf("apitesting: %s", err.Error())
+// 					return errors.New(message)
+// 				}
+
+// 				err = json.Unmarshal(expectedIDsBytes, &expectedIntIDs)
+
+// 				if err != nil {
+// 					message := fmt.Sprintf("apitesting: %s", err.Error())
+// 					return errors.New(message)
+// 				}
+
+// 				err = json.Unmarshal(responseIDsBytes, &responseIntIDs)
+
+// 				if err != nil {
+// 					message := fmt.Sprintf("apitesting: %s", err.Error())
+// 					return errors.New(message)
+// 				}
+
+// 				for _, v := range expectedIntIDs {
+// 					containsID := false
+
+// 					for _, t := range responseIntIDs {
+// 						if t.ID == v.ID {
+// 							containsID = true
+// 							break
+// 						}
+// 					}
+
+// 					if !containsID {
+// 						message := fmt.Sprintf(
+// 							"apitesting: Slice response does not contain %d", v.ID,
+// 						)
+// 						return errors.New(message)
+// 					}
+// 				}
+
+// 			// Id interface{} valie is neither struct or slice, then return err
+// 			default:
+// 				return errors.New("apitesting: not valid type")
+// 			}
+// 		} else {
+// 			message := fmt.Sprintf("apitesting: key %s not in results from body", k)
+// 			return errors.New(message)
+// 		}
+// 	}
+// }
 
 func ValidateFilteredIntArrayResponse(bodyResponse io.Reader, expectedResult interface{}) error {
-	result := filteredIntIDResponse{}
-	return validateIDResponse(bodyResponse, result, expectedResult)
+	return validateIDResponse(bodyResponse, intFilteredIDResult, expectedResult)
 }
 
 func ValidateFilteredInt64ArrayResponse(bodyResponse io.Reader, expectedResult interface{}) error {
-	result := filteredInt64IDResponse{}
-	return validateIDResponse(bodyResponse, result, expectedResult)
+	return validateIDResponse(bodyResponse, int64FilteredIDResult, expectedResult)
 }
 
 func ValidateIntArrayResponse(bodyResponse io.Reader, expectedResult interface{}) error {
-	resultIDs := make([]intIDResponse, 0)
-	return validateIDResponse(bodyResponse, resultIDs, expectedResult)
+	return validateIDResponse(bodyResponse, intArrayIDResult, expectedResult)
 }
 
 func ValidateInt64ArrayResponse(bodyResponse io.Reader, expectedResult interface{}) error {
-	resultIDs := make([]Int64ID, 0)
-	return validateIDResponse(bodyResponse, resultIDs, expectedResult)
+	return validateIDResponse(bodyResponse, int64ArrayIDResult, expectedResult)
+}
+
+func ValidateIntMapResponse(bodyResponse io.Reader, expectedResult interface{}) error {
+	return validateIDResponse(bodyResponse, intMapIDResult, expectedResult)
+}
+
+func ValidateInt64MapResponse(bodyResponse io.Reader, expectedResult interface{}) error {
+	return validateIDResponse(bodyResponse, int64MapIDResult, expectedResult)
+}
+
+func ValidateIntObjectResponse(bodyResponse io.Reader, expectedResult interface{}) error {
+	return validateIDResponse(bodyResponse, intObjectIDResult, expectedResult)
+}
+
+func ValidateInt64ObjectResponse(bodyResponse io.Reader, expectedResult interface{}) error {
+	return validateIDResponse(bodyResponse, int64ObjectIDResult, expectedResult)
 }
 
 func ValidateStringResponse(bodyResponse io.Reader, expectedResult interface{}) error {

@@ -163,6 +163,7 @@ func RunRequestFormTests(t *testing.T, deferFunc func() error, formTests []FormR
 			} else {
 				if validationErrors, ok := formErr.(validation.Errors); ok {
 					containsErr := false
+					fmt.Printf("validation errors: %v\n", validationErrors)
 					for key, expectedVal := range formTest.ValidationErrors {
 						if val, valid := validationErrors[key]; valid {
 							if val.Error() != expectedVal {

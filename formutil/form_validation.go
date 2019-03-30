@@ -660,9 +660,6 @@ func (v *validateIDsRule) Validate(value interface{}) error {
 		return nil
 	}
 
-	// fmt.Printf("value: %v\n", value)
-	// fmt.Printf("value foo: %v\n", test)
-
 	args := make([]interface{}, 0)
 
 	switch value.(type) {
@@ -711,10 +708,12 @@ func (v *validateIDsRule) Validate(value interface{}) error {
 		args = append(args, v.args...)
 	}
 
-	if len(ids) > 0 {
-		args = httputil.InsertAt(args, ids, v.placeHolderPosition-1)
-	} else {
-		args = httputil.InsertAt(args, singleVal, v.placeHolderPosition-1)
+	if v.placeHolderPosition > 0 {
+		if len(ids) > 0 {
+			args = httputil.InsertAt(args, ids, v.placeHolderPosition-1)
+		} else {
+			args = httputil.InsertAt(args, singleVal, v.placeHolderPosition-1)
+		}
 	}
 
 	q, arguments, err := queryutil.InQueryRebind(v.bindVar, v.query, args...)
@@ -741,6 +740,8 @@ func (v *validateIDsRule) Validate(value interface{}) error {
 		}
 
 		if expectedLen != counter {
+			fmt.Printf("counter: %v\n", counter)
+			fmt.Printf("len: %v\n", expectedLen)
 			return errors.New(v.message)
 		}
 
