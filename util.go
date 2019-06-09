@@ -2,6 +2,7 @@ package httputil
 
 import (
 	"fmt"
+	"net/http"
 
 	"github.com/pkg/errors"
 )
@@ -23,3 +24,7 @@ func InsertAt(slice []interface{}, val interface{}, idx int) []interface{} {
 
 	return slice
 }
+
+// PathRegex is a work around for the fact that injecting and retrieving a route into
+// mux is quite complex without spinning up an entire server
+type PathRegex func(r *http.Request) (string, error)

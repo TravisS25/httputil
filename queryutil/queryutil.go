@@ -9,6 +9,9 @@ import (
 	"regexp"
 	"strconv"
 
+	"github.com/TravisS25/httputil/cacheutil"
+	"github.com/TravisS25/httputil/confutil"
+
 	"github.com/TravisS25/httputil"
 	"github.com/TravisS25/httputil/apiutil"
 	"github.com/TravisS25/httputil/dbutil"
@@ -649,12 +652,65 @@ func InQueryRebind(bindType int, query string, args ...interface{}) (string, []i
 	return query, args, nil
 }
 
-func GetRowerResults(rower httputil.Rower) ([]interface{}, error) {
+// func GetRowerResults(rower httputil.Rower) ([]interface{}, error) {
+// 	var err error
+// 	columns, err := rower.Columns()
+
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	count := len(columns)
+// 	values := make([]interface{}, count)
+// 	valuePtrs := make([]interface{}, count)
+// 	rows := make([]interface{}, 0)
+
+// 	for rower.Next() {
+// 		for i := range columns {
+// 			valuePtrs[i] = &values[i]
+// 		}
+
+// 		err = rower.Scan(valuePtrs...)
+
+// 		if err != nil {
+// 			return nil, err
+// 		}
+
+// 		row := make(map[string]interface{}, 0)
+
+// 		for i := range columns {
+// 			var v interface{}
+
+// 			val := values[i]
+
+// 			switch val.(type) {
+// 			case int64:
+// 				v = strconv.FormatInt(val.(int64), apiutil.IntBase)
+// 			case float64:
+// 				v = strconv.FormatFloat(val.(float64), 'g', 'g', confutil.IntBitSize)
+// 			default:
+// 				v = val
+// 			}
+
+// 			row[columns[i]] = v
+// 		}
+
+// 		rows = append(rows, row)
+// 	}
+
+// 	return rows, nil
+// }
+
+func SetRowerResults(
+	rower httputil.Rower,
+	cache cacheutil.CacheStore,
+	cacheSetup cacheutil.CacheSetup,
+) error {
 	var err error
 	columns, err := rower.Columns()
 
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	count := len(columns)
@@ -663,7 +719,6 @@ func GetRowerResults(rower httputil.Rower) ([]interface{}, error) {
 	rows := make([]interface{}, 0)
 
 	for rower.Next() {
-
 		for i := range columns {
 			valuePtrs[i] = &values[i]
 		}
@@ -671,32 +726,78 @@ func GetRowerResults(rower httputil.Rower) ([]interface{}, error) {
 		err = rower.Scan(valuePtrs...)
 
 		if err != nil {
-			return nil, err
+			return err
 		}
 
 		row := make(map[string]interface{}, 0)
+		var idVal interface{}
 
-		for i := range columns {
+		for i, k := range columns {
 			var v interface{}
 
 			val := values[i]
 
+			if k == "id" {
+				idVal = val
+			}
+
 			switch val.(type) {
 			case int64:
-				// fmt.Printf("int64 type\n")
-				// fmt.Printf("column name: %s\n", columns[i])
 				v = strconv.FormatInt(val.(int64), apiutil.IntBase)
+			case *int64:
+				t := val.(*int64)
+				if t != nil {
+					v = strconv.FormatInt(*t, apiutil.IntBase)
+				}
+			case float64:
+				v = strconv.FormatFloat(val.(float64), 'g', 'g', confutil.IntBitSize)
+			case *float64:
+				t := val.(*float64)
+				if t != nil {
+					v = strconv.FormatFloat(*t, 'g', 'g', confutil.IntBitSize)
+				}
 			default:
 				v = val
 			}
 
-			row[columns[i]] = v
+			row[snaker.SnakeToCamel(columns[i])] = v
+			// row[columns[i]] = v
 		}
+
+		rowBytes, err := json.Marshal(&row)
+
+		if err != nil {
+			return err
+		}
+
+		var cacheID string
+
+		switch idVal.(type) {
+		case int64:
+			cacheID = strconv.FormatInt(idVal.(int64), confutil.IntBase)
+		case int:
+			cacheID = strconv.Itoa(idVal.(int))
+		default:
+			return errors.New("Invalid id type")
+		}
+
+		cache.Set(
+			fmt.Sprintf(cacheSetup.CacheIDKey, cacheID),
+			rowBytes,
+			0,
+		)
 
 		rows = append(rows, row)
 	}
 
-	return rows, nil
+	rowsBytes, err := json.Marshal(&rows)
+
+	if err != nil {
+		return err
+	}
+
+	cache.Set(cacheSetup.CacheListKey, rowsBytes, 0)
+	return nil
 }
 
 func HasFilterError(w http.ResponseWriter, err error) bool {

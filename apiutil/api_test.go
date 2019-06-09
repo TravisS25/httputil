@@ -33,22 +33,46 @@ func ExampleServerError() {
 	})
 }
 
-// func ExampleHasFormErrors() {
-// 	var Test struct {
-// 		Bar string `json:"bar"`
-// 		Foo string `json:"foo"`
+// func TestJsonPayload(t *testing.T) {
+// 	type MockJson struct {
+// 		ID     int64  `json:"id,string"`
+// 		Public string `json:"public"`
+// 		Secret string `json:"secret"`
 // 	}
 
-// 	http.HandleFunc("/bar", func(w http.ResponseWriter, r *http.Request) {
-// 		// ... Doing something
-// 		var test Test
+// 	err := jsonPayload(
+// 		map[string]interface{}{
+// 			"mocks": []*MockJson{
+// 				{
+// 					ID:     1,
+// 					Public: "public1",
+// 					Secret: "Secret",
+// 				},
+// 				{
+// 					ID:     2,
+// 					Public: "public1",
+// 					Secret: "Secret",
+// 				},
+// 				{
+// 					ID:     3,
+// 					Public: "public1",
+// 					Secret: "Secret",
+// 				},
+// 			},
+// 		},
+// 		map[string]interface{}{
+// 			"mocks": []interface{}{
+// 				map[string]interface{}{
+// 					"secret": true,
+// 				},
+// 			},
+// 		},
+// 		"",
+// 	)
 
-// 		if err != nil {
-// 			ServerError(w, err, "custom message", "/var/test.log")
-// 		}
-
-// 		return
-// 	})
+// 	if err != nil {
+// 		t.Errorf(err.Error())
+// 	}
 // }
 
 func ExampleHasBodyError() {

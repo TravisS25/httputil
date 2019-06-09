@@ -7,7 +7,9 @@ package httputil
  scanning each row for results, transactions etc.
 */
 
-import "database/sql"
+import (
+	"database/sql"
+)
 
 // Querier is for querying rows from database
 type Querier interface {
@@ -71,4 +73,9 @@ type DBInterface interface {
 	XODB
 	Transaction
 	SqlxDB
+}
+
+type DBInterfaceV2 interface {
+	DBInterface
+	RecoverError(err error) bool
 }

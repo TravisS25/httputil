@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TravisS25/httputil/confutil"
+
 	"github.com/go-redis/redis"
 
 	"github.com/TravisS25/httputil/queryutil"
@@ -24,11 +26,12 @@ import (
 )
 
 var (
-	PhoneNumberRegex *regexp.Regexp
-	EmailRegex       *regexp.Regexp
-	ZipRegex         *regexp.Regexp
-	DateRegex        *regexp.Regexp
-	ColorRegex       *regexp.Regexp
+	PhoneNumberRegex    *regexp.Regexp
+	EmailRegex          *regexp.Regexp
+	ZipRegex            *regexp.Regexp
+	DateRegex           *regexp.Regexp
+	ColorRegex          *regexp.Regexp
+	RequiredStringRegex *regexp.Regexp
 )
 
 var (
@@ -56,8 +59,7 @@ const (
 )
 
 const (
-	RequiredTxt = "Required"
-	//MustBeUniqueTxt      = "Must be unique"
+	RequiredTxt          = "Required"
 	AlreadyExistsTxt     = "Already exists"
 	DoesNotExistTxt      = "Does not exist"
 	InvalidTxt           = "Invalid"
@@ -66,6 +68,10 @@ const (
 	InvalidPastDateTxt   = "Date can't be before current date/time"
 	CantBeNegativeTxt    = "Can't be negative"
 )
+
+// PathRegex is a work around for the fact that injecting and retrieving a route into
+// mux is quite complex without spinning up an entire server
+type PathRegex func(r *http.Request) (string, error)
 
 //----------------------- INTERFACES ------------------------------
 
@@ -578,6 +584,9 @@ func (v *validateUniquenessRule) Validate(value interface{}) error {
 		return nil
 	}
 
+	// fmt.Printf("instance: %s\n", v.instanceValue)
+	// fmt.Printf("value: %s\n", value)
+
 	if v.instanceValue == value {
 		return nil
 	}
@@ -617,7 +626,9 @@ func (v *validateUniquenessRule) Validate(value interface{}) error {
 			return nil
 		}
 
-		return validation.NewInternalError(err)
+		message := fmt.Sprintf(err.Error()+"\n query: %s\n"+"args: %v", q, args)
+		errMessage := errors.New(message)
+		return validation.NewInternalError(errMessage)
 	}
 
 	return errors.New(v.message)
@@ -719,7 +730,8 @@ func (v *validateIDsRule) Validate(value interface{}) error {
 	q, arguments, err := queryutil.InQueryRebind(v.bindVar, v.query, args...)
 
 	if err != nil {
-		return validation.NewInternalError(err)
+		messageErr := fmt.Errorf(err.Error()+"\n query: %s\n args:%v\n", q, args)
+		return validation.NewInternalError(messageErr)
 	}
 
 	queryFunc := func() error {
@@ -729,9 +741,8 @@ func (v *validateIDsRule) Validate(value interface{}) error {
 		// fmt.Printf("args: %v\n", arguments)
 
 		if err != nil {
-			return validation.NewInternalError(fmt.Errorf(
-				"query: %s  err: %s", q, err.Error()),
-			)
+			errS := fmt.Errorf("query: %s  err: %s", q, err.Error())
+			return validation.NewInternalError(errS)
 		}
 
 		counter := 0
@@ -824,11 +835,12 @@ func initRegexExpressions() {
 	ZipRegex, _ = regexp.Compile("^[0-9]{5}$")
 	PhoneNumberRegex, _ = regexp.Compile("^\\([0-9]{3}\\)-[0-9]{3}-[0-9]{4}$")
 	ColorRegex, _ = regexp.Compile("^#[0-9a-z]{6}$")
+	RequiredStringRegex, _ = regexp.Compile(`[^\s\\]`)
 }
 
 func HasFormErrors(w http.ResponseWriter, err error) bool {
 	if err != nil {
-		//httputil.CheckError(err, "")
+		confutil.CheckError(err, "")
 		switch err {
 		case ErrBodyMessage:
 			w.WriteHeader(http.StatusNotAcceptable)
@@ -861,10 +873,64 @@ func CheckBodyAndDecode(req *http.Request, form interface{}) error {
 			return ErrInvalidJSON
 		}
 	} else {
-		if req.Method == http.MethodDelete {
+		if req.Method != http.MethodDelete {
 			return ErrBodyMessage
 		}
 	}
+
+	return nil
+}
+
+func CheckBodyAndDecodeV2(req *http.Request, form interface{}, excludeMethods ...string) error {
+	canSkip := false
+
+	for _, v := range excludeMethods {
+		if req.Method == v {
+			canSkip = true
+			break
+		}
+	}
+
+	if !canSkip {
+		if req.Body != nil {
+			fmt.Printf("hbody nooooooot nillll\n")
+			fmt.Printf("body val: %s\n", req.Body)
+			dec := json.NewDecoder(req.Body)
+			err := dec.Decode(&form)
+
+			if err != nil {
+				fmt.Printf(err.Error())
+				return ErrInvalidJSON
+			}
+		} else {
+			return ErrBodyMessage
+		}
+	}
+
+	// if req.Body != nil {
+	// 	fmt.Printf("hbody nooooooot nillll\n")
+	// 	fmt.Printf("body val: %s\n", req.Body)
+	// 	dec := json.NewDecoder(req.Body)
+	// 	err := dec.Decode(&form)
+
+	// 	if err != nil {
+	// 		fmt.Printf(err.Error())
+	// 		return ErrInvalidJSON
+	// 	}
+	// } else {
+	// 	canSkip := false
+
+	// 	for _, v := range excludeMethods {
+	// 		if req.Method == v {
+	// 			canSkip = true
+	// 			break
+	// 		}
+	// 	}
+
+	// 	if !canSkip {
+	// 		return ErrBodyMessage
+	// 	}
+	// }
 
 	return nil
 }

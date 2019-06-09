@@ -54,19 +54,19 @@ type Key struct {
 
 // ConfigSettings simply takes a string which should reference an enviroment variable
 // that points to config file used for application
-func ConfigSettings(envString string) *Settings {
+func ConfigSettings(envString string) (*Settings, error) {
 	var settings *Settings
 	configFile := os.Getenv(envString)
 	source, err := ioutil.ReadFile(configFile)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	err = yaml.Unmarshal(source, &settings)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
-	return settings
+	return settings, nil
 }
 
 // CheckError simply prints given error in verbose to stdout

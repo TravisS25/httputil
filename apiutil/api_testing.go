@@ -13,11 +13,11 @@ import (
 	"testing"
 )
 
-const (
-	TokenHeader     = "X-CSRF-TOKEN"
-	CookieHeader    = "Cookie"
-	SetCookieHeader = "Set-Cookie"
-)
+// const (
+// 	TokenHeader     = "X-CSRF-TOKEN"
+// 	CookieHeader    = "Cookie"
+// 	SetCookieHeader = "Set-Cookie"
+// )
 
 // TestCase is config struct used in conjunction with
 // the RunTestCases function

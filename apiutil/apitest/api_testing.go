@@ -48,6 +48,14 @@ type id interface {
 	GetID() interface{}
 }
 
+type MockHandler struct {
+	ServeHTTPFunc func(http.ResponseWriter, *http.Request)
+}
+
+func (m *MockHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	m.ServeHTTPFunc(w, r)
+}
+
 // TestCase is config struct used in conjunction with
 // the RunTestCases function
 type TestCase struct {
@@ -101,6 +109,18 @@ type filteredInt64ID struct {
 type Response struct {
 	ExpectedResult       interface{}
 	ValidateResponseFunc func(bodyResponse io.Reader, expectedResult interface{}) error
+}
+
+func NewRequestWithForm(method, url string, form interface{}) (*http.Request, error) {
+	if form != nil {
+		var buffer bytes.Buffer
+		encoder := json.NewEncoder(&buffer)
+		encoder.Encode(&form)
+		return http.NewRequest(method, url, &buffer)
+	}
+
+	fmt.Printf("past form nil\n")
+	return http.NewRequest(method, url, nil)
 }
 
 func RunTestCasesV2(t *testing.T, deferFunc func() error, testCases []TestCase) {
@@ -650,9 +670,9 @@ func validateIDResponse(bodyResponse io.Reader, result int, expectedResults inte
 
 		if len(responseResults) != len(expectedMap) {
 			errorMessage := fmt.Sprintf(
-				ResponseErrorMessage,
-				responseResults,
-				expectedMap,
+				"Map result length %d; expected map length: %d",
+				len(responseResults),
+				len(expectedMap),
 			)
 			return errors.New(errorMessage)
 		}
@@ -681,7 +701,10 @@ func validateIDResponse(bodyResponse io.Reader, result int, expectedResults inte
 						expectedInt64, ok := expectedMap[k].(int64)
 
 						if !ok {
-							message := fmt.Sprintf(`apitesting: key value "%s" for "ExpectedResult" should be int64`, k)
+							message := fmt.Sprintf(
+								`apitesting: key value "%s" for "ExpectedResult" should be int64`,
+								k,
+							)
 							return errors.New(message)
 						}
 
@@ -1019,13 +1042,9 @@ func ResponseError(t *testing.T, res *http.Response, expectedStatus int, err err
 
 // LoginUser takes email and password along with login url and form information
 // to use to make a POST request to login url and if successful, return user cookie
-func LoginUser(email, password, loginURL string, loginForm interface{}, ts *httptest.Server) (string, error) {
+func LoginUser(url string, loginForm interface{}) (string, error) {
 	client := &http.Client{}
-
-	baseURL := ts.URL
-	fullURL := baseURL + loginURL
-
-	req, err := http.NewRequest("GET", fullURL, nil)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
 
 	if err != nil {
 		return "", err
@@ -1037,10 +1056,17 @@ func LoginUser(email, password, loginURL string, loginForm interface{}, ts *http
 		return "", err
 	}
 
+	if res.StatusCode != http.StatusOK {
+		buf := bytes.Buffer{}
+		buf.ReadFrom(res.Body)
+		errorMessage := fmt.Sprintf("status code: %d\n  response: %s\n", res.StatusCode, buf.String())
+		return "", errors.New(errorMessage)
+	}
+
 	token := res.Header.Get(TokenHeader)
 	csrf := res.Header.Get(SetCookieHeader)
 	buffer := apiutil.GetJSONBuffer(loginForm)
-	req, err = http.NewRequest("POST", fullURL, &buffer)
+	req, err = http.NewRequest(http.MethodPost, url, &buffer)
 
 	if err != nil {
 		return "", err
@@ -1054,6 +1080,14 @@ func LoginUser(email, password, loginURL string, loginForm interface{}, ts *http
 		return "", err
 	}
 
+	if res.StatusCode != http.StatusOK {
+		buf := bytes.Buffer{}
+		buf.ReadFrom(res.Body)
+		errorMessage := fmt.Sprintf("status code: %d\n  response: %s\n", res.StatusCode, buf.String())
+		return "", errors.New(errorMessage)
+	}
+
+	// fmt.Printf("cookies: %v\n\n", res.Cookies())
 	return res.Header.Get(SetCookieHeader), nil
 }
 
@@ -1084,4 +1118,24 @@ func NewFileUploadRequest(uri string, params map[string]string, paramName, path 
 	req, err := http.NewRequest("POST", uri, body)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	return req, err
+}
+
+func CheckResponse(method, url string, expectedStatus int, header http.Header, form interface{}) (*http.Response, error) {
+	client := &http.Client{}
+	buffer := &bytes.Buffer{}
+	req, _ := NewRequestWithForm(method, url, form)
+	req.Header = header
+	res, err := client.Do(req)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if res.StatusCode != expectedStatus {
+		buffer.ReadFrom(res.Body)
+		message := fmt.Sprintf("got status %d; want %d\nresponse: %s", res.StatusCode, http.StatusOK, buffer.String())
+		return nil, errors.New(message)
+	}
+
+	return res, nil
 }

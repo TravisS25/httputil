@@ -63,6 +63,8 @@ type StoreConfig struct {
 	Redis           *RedisSession    `yaml:"redis"`
 	FileSystemStore *FileSystemStore `yaml:"file_system_store"`
 	CookieStore     *CookieStore     `yaml:"cookie_store"`
+	AuthKey         string           `yaml:"auth_key"`
+	EncryptKey      string           `yaml:"encrypt_key"`
 }
 
 type CacheConfig struct {
@@ -91,7 +93,7 @@ type Database struct {
 	Password string `yaml:"password"`
 	Host     string `yaml:"host"`
 	Port     string `yaml:"port"`
-	SSlMode  string `yaml:"ssl_mode"`
+	SSLMode  string `yaml:"ssl_mode"`
 }
 
 type S3Config struct {
@@ -108,9 +110,9 @@ type S3Storage struct {
 
 // Settings is the configuration settings for the app
 type Settings struct {
-	Prod           bool            `yaml:"prod"`
-	AuthKey        string          `yaml:"auth_key"`
-	EncryptKey     string          `yaml:"encrypt_key"`
+	Prod bool `yaml:"prod"`
+	// AuthKey        string          `yaml:"auth_key"`
+	// EncryptKey     string          `yaml:"encrypt_key"`
 	Domain         string          `yaml:"domain"`
 	ClientDomain   string          `yaml:"client_domain"`
 	CSRF           string          `yaml:"csrf"`
@@ -125,6 +127,7 @@ type Settings struct {
 	Stripe         *Stripe         `yaml:"stripe"`
 	S3Config       *S3Config       `yaml:"s3_config"`
 
-	Databases map[string]*Database `yaml:"databases"`
-	Emails    map[string]*Email    `yaml:"emails"`
+	Databases map[string][]*Database `yaml:"databases"`
+	Emails    map[string]*Email      `yaml:"emails"`
+	StripeMap map[string]*Stripe     `yaml:"stripe_map"`
 }

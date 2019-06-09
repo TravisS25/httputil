@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"testing"
@@ -51,7 +52,7 @@ type FormRequestConfig struct {
 	// ValidationErrors is a map of what errors you expect to return from test
 	// The key is the json name of the field and value is the error message the
 	// field should return - Optional
-	ValidationErrors map[string]string
+	ValidationErrors map[string]interface{}
 
 	InternalError string
 }
@@ -95,6 +96,76 @@ type FormTestCase struct {
 
 	// InternalError is expected internal
 	InternalError string
+}
+
+func formValidation(t *testing.T, mapKey string, formValidationErr error, expectedErr interface{}) error {
+	var err error
+
+	if innerExpectedErr, k := expectedErr.(map[string]interface{}); k {
+		if innerFormErr, j := formValidationErr.(validation.Errors); j {
+			for innerExpectedKey := range innerExpectedErr {
+				if innerFormVal, ok := innerFormErr[innerExpectedKey]; ok {
+					innerExpectedVal := innerExpectedErr[innerExpectedKey]
+
+					switch innerExpectedVal.(type) {
+					case map[string]interface{}:
+						//fmt.Printf("map val switch\n")
+						err = formValidation(t, innerExpectedKey, innerFormVal, innerExpectedVal)
+
+						if err != nil {
+							//fmt.Printf("form err\n")
+							return err
+						}
+					case string:
+						//fmt.Printf("string val switch\n")
+
+						if len(innerExpectedErr) != len(innerFormErr) {
+							if len(innerExpectedErr) > len(innerFormErr) {
+								for k := range innerExpectedErr {
+									if _, ok := innerFormErr[k]; !ok {
+										t.Errorf("form testing: Key \"%s\" found in \"ValidationErrors\" that is not in form errors", k)
+									}
+								}
+							} else {
+								for k, v := range innerFormErr {
+									if _, ok := innerExpectedErr[k]; !ok {
+										//t.Errorf("heeeey type: %v", validationErrors["invoiceItems"]["0"])
+										t.Errorf("form testing: Key \"%s\" found in form errors that is not in \"ValidationErrors\"\n  Key \"%s\" threw err: %s\n", k, k, v.Error())
+									}
+								}
+							}
+						}
+
+						if innerFormVal.Error() != innerExpectedVal {
+							t.Errorf(
+								"form testing: Key \"%s\" threw err: \"%s\" \n expected: \"%s\" \n",
+								innerExpectedKey,
+								innerFormVal.Error(),
+								innerExpectedVal,
+							)
+						}
+					default:
+						message := fmt.Sprintf("form testing: Passed \"ValidationErrors\" has unexpected type\n")
+						return errors.New(message)
+					}
+				} else {
+					t.Errorf("form testing: Key \"%s\" was in \"ValidationErrors\" but not form errors\n", innerExpectedKey)
+				}
+			}
+		} else {
+			message := fmt.Sprintf(
+				"form testing: \"ValidationErrors\" error for key \"%s\" was type map but form error was not\n.  Error thrown: %s", mapKey, formValidationErr,
+			)
+			return errors.New(message)
+		}
+	} else {
+		//fmt.Printf("made to non map\n")
+		if formValidationErr.Error() != expectedErr {
+			t.Errorf("form testing: Key \"%s\" threw err: \"%s\" \n expected: \"%s\" \n", mapKey, formValidationErr.Error(), expectedErr)
+		}
+	}
+
+	return nil
 }
 
 func RunRequestFormTests(t *testing.T, deferFunc func() error, formTests []FormRequestConfig) {
@@ -153,6 +224,7 @@ func RunRequestFormTests(t *testing.T, deferFunc func() error, formTests []FormR
 				}
 
 				req = mux.SetURLVars(req, formTest.RouterValues)
+				req = mux.SetCurrentRoute(req, formTest.URL)
 				_, formErr = formTest.Validator.Validate(req, formTest.Instance)
 			}
 
@@ -162,37 +234,56 @@ func RunRequestFormTests(t *testing.T, deferFunc func() error, formTests []FormR
 				}
 			} else {
 				if validationErrors, ok := formErr.(validation.Errors); ok {
-					containsErr := false
-					fmt.Printf("validation errors: %v\n", validationErrors)
+					fmt.Printf("validation err: %v\n", validationErrors)
+
 					for key, expectedVal := range formTest.ValidationErrors {
-						if val, valid := validationErrors[key]; valid {
-							if val.Error() != expectedVal {
-								containsErr = true
-								t.Errorf("Key \"%s\" threw err: \"%s\" \n expected: \"%s\" \n", key, val.Error(), expectedVal)
-							}
-						}
-					}
+						if fErr, valid := validationErrors[key]; valid {
+							err := formValidation(t, key, fErr, expectedVal)
 
-					if containsErr {
-						fmt.Println("------------------")
-					}
-
-					if len(formTest.ValidationErrors) != len(validationErrors) {
-						if len(formTest.ValidationErrors) > len(validationErrors) {
-							for k := range formTest.ValidationErrors {
-								if _, ok := validationErrors[k]; !ok {
-									t.Errorf("Key \"%s\" found in \"ValidationErrors\" that is not in form errors", k)
-								}
+							if err != nil {
+								t.Errorf(err.Error())
 							}
 						} else {
-							for k, v := range validationErrors {
-								if _, ok := formTest.ValidationErrors[k]; !ok {
-									//t.Errorf("heeeey type: %v", validationErrors["invoiceItems"]["0"])
-									t.Errorf("Key \"%s\" found in form errors that is not in \"ValidationErrors\"\n  Threw err: %s", k, v.Error())
-								}
-							}
+							t.Errorf("Key \"%s\" found in \"ValidationErrors\" that is not in form errors\n\n", key)
 						}
 					}
+
+					for k, v := range validationErrors {
+						if fErr, valid := formTest.ValidationErrors[k]; valid {
+							err := formValidation(t, k, v, fErr)
+
+							if err != nil {
+								t.Errorf(err.Error())
+							}
+						} else {
+							t.Errorf(
+								"Key \"%s\" found in form errors that is not in \"ValidationErrors\"\n  Threw err: %s\n\n",
+								k,
+								v.Error(),
+							)
+						}
+					}
+
+					// if len(formTest.ValidationErrors) != len(validationErrors) {
+					// 	if len(formTest.ValidationErrors) > len(validationErrors) {
+					// 		for k := range formTest.ValidationErrors {
+					// 			if _, ok := validationErrors[k]; !ok {
+					// 				t.Errorf("Key \"%s\" found in \"ValidationErrors\" that is not in form errors", k)
+					// 			}
+					// 		}
+					// 	} else {
+					// 		for k, v := range validationErrors {
+					// 			if _, ok := formTest.ValidationErrors[k]; !ok {
+					// 				//t.Errorf("heeeey type: %v", validationErrors["invoiceItems"]["0"])
+					// 				t.Errorf(
+					// 					"Key \"%s\" found in form errors that is not in \"ValidationErrors\"\n  Threw err: %s",
+					// 					k,
+					// 					v.Error(),
+					// 				)
+					// 			}
+					// 		}
+					// 	}
+					// }
 				} else {
 					if formTest.InternalError != formErr.Error() {
 						t.Errorf("Internal Error: %s\n", formErr.Error())

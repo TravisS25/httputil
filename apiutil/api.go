@@ -19,6 +19,16 @@ import (
 )
 
 const (
+	TokenHeader     = "X-CSRF-TOKEN"
+	CookieHeader    = "Cookie"
+	SetCookieHeader = "Set-Cookie"
+)
+
+const (
+	IDParam = "{id:[0-9]+}"
+)
+
+const (
 	PostResponseFormat = "Got %v; should be %v"
 )
 
@@ -122,8 +132,8 @@ func HasFormErrors(w http.ResponseWriter, err error) bool {
 	return false
 }
 
-// SendPayload is a wrapper for converting the payload map parameter into json and sending to the client
-// If addUserContext parameter is set to true, the json sent back
+// SendPayload is a wrapper for converting the payload map parameter into json and
+// sending to the client
 func SendPayload(w http.ResponseWriter, payload interface{}) {
 	jsonString, err := json.Marshal(payload)
 
@@ -243,9 +253,9 @@ func LogoutUser(w http.ResponseWriter, r *http.Request, sessionStore sessions.St
 
 // GetUserGroups is wrapper for to returning group string slice from context of request
 // If there is no groupctx, returns nil
-func GetUserGroups(r *http.Request) []string {
+func GetUserGroups(r *http.Request) map[string]bool {
 	if r.Context().Value(GroupCtxKey) != nil {
-		return r.Context().Value(GroupCtxKey).([]string)
+		return r.Context().Value(GroupCtxKey).(map[string]bool)
 	}
 
 	return nil
@@ -270,13 +280,11 @@ func GetUserGroupsI(r *http.Request) []interface{} {
 // The search is based on OR logic so if any one of the given strings
 // is found, function will return true
 func HasGroup(r *http.Request, searchGroups ...string) bool {
-	groupArray := r.Context().Value(GroupCtxKey).([]string)
+	groupMap := r.Context().Value(GroupCtxKey).(map[string]bool)
 
-	for _, groupName := range groupArray {
-		for _, searchGroup := range searchGroups {
-			if searchGroup == groupName {
-				return true
-			}
+	for _, searchGroup := range searchGroups {
+		if _, ok := groupMap[searchGroup]; ok {
+			return true
 		}
 	}
 

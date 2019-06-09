@@ -9,7 +9,6 @@ import (
 	"github.com/TravisS25/httputil"
 	"github.com/TravisS25/httputil/cacheutil"
 	"github.com/TravisS25/httputil/confutil"
-	"github.com/TravisS25/httputil/dbutil"
 	"github.com/TravisS25/httputil/mailutil"
 	"github.com/go-redis/redis"
 	"github.com/gorilla/csrf"
@@ -50,36 +49,36 @@ func GetCacheSettings(conf *confutil.Settings) cacheutil.CacheStore {
 // 	return getCacheSettings(conf)
 // }
 
-func GetDB(conf *confutil.Settings, isProd bool) (*dbutil.DB, error) {
-	var err error
-	var db *dbutil.DB
+// func GetDB(conf *confutil.Settings, isProd bool) (*dbutil.DB, error) {
+// 	var err error
+// 	var db *dbutil.DB
 
-	if isProd {
-		db, err = dbutil.NewDB(dbutil.DBConfig{
-			Host:     conf.DatabaseConfig.Prod.Host,
-			User:     conf.DatabaseConfig.Prod.User,
-			Password: conf.DatabaseConfig.Prod.Password,
-			DBName:   conf.DatabaseConfig.Prod.DBName,
-			Port:     conf.DatabaseConfig.Prod.Port,
-			SSLMode:  conf.DatabaseConfig.Prod.SSlMode,
-		})
-	} else {
-		db, err = dbutil.NewDB(dbutil.DBConfig{
-			Host:     conf.DatabaseConfig.Test.Host,
-			User:     conf.DatabaseConfig.Test.User,
-			Password: conf.DatabaseConfig.Test.Password,
-			DBName:   conf.DatabaseConfig.Test.DBName,
-			Port:     conf.DatabaseConfig.Test.Port,
-			SSLMode:  conf.DatabaseConfig.Test.SSlMode,
-		})
-	}
+// 	if isProd {
+// 		db, err = dbutil.NewDB(dbutil.DBConfig{
+// 			Host:     conf.DatabaseConfig.Prod.Host,
+// 			User:     conf.DatabaseConfig.Prod.User,
+// 			Password: conf.DatabaseConfig.Prod.Password,
+// 			DBName:   conf.DatabaseConfig.Prod.DBName,
+// 			Port:     conf.DatabaseConfig.Prod.Port,
+// 			SSLMode:  conf.DatabaseConfig.Prod.SSlMode,
+// 		}, dbutil.Postgres)
+// 	} else {
+// 		db, err = dbutil.NewDB(dbutil.DBConfig{
+// 			Host:     conf.DatabaseConfig.Test.Host,
+// 			User:     conf.DatabaseConfig.Test.User,
+// 			Password: conf.DatabaseConfig.Test.Password,
+// 			DBName:   conf.DatabaseConfig.Test.DBName,
+// 			Port:     conf.DatabaseConfig.Test.Port,
+// 			SSLMode:  conf.DatabaseConfig.Test.SSlMode,
+// 		}, dbutil.Postgres)
+// 	}
 
-	if err != nil {
-		panic(err)
-	}
+// 	if err != nil {
+// 		panic(err)
+// 	}
 
-	return db, err
-}
+// 	return db, err
+// }
 
 func GetStoreSettings(conf *confutil.Settings) (sessions.Store, error) {
 	var err error
