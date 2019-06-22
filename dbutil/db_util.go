@@ -241,7 +241,22 @@ func NewDBWithList(dbConfigList []*confutil.Database, dbType string) (*DB, error
 	return nil, ErrNoConnection
 }
 
-func dbError(w http.ResponseWriter, db httputil.DBInterfaceV2, err error) bool {
+// func dbError(w http.ResponseWriter, db httputil.DBInterfaceV2, err error) bool {
+// 	if err != nil {
+// 		confutil.CheckError(err, "")
+
+// 		if db.RecoverError(err) {
+// 			w.WriteHeader(http.StatusTemporaryRedirect)
+// 			return true
+// 		}
+
+// 		return true
+// 	}
+
+// 	return false
+// }
+
+func dbError(w http.ResponseWriter, err error, db httputil.DBInterfaceV2) bool {
 	if err != nil {
 		confutil.CheckError(err, "")
 
@@ -266,19 +281,33 @@ func dbError(w http.ResponseWriter, db httputil.DBInterfaceV2, err error) bool {
 // This function does not check what type of err is passed, just checks
 // if err is nil or not so it's up to user to use appropriately; however
 // we do a quick ping check just to make sure db is truely down
-func HasDBError(w http.ResponseWriter, db httputil.DBInterfaceV2, err error) bool {
-	return dbError(w, db, err)
+// func HasDBError(w http.ResponseWriter, db httputil.DBInterfaceV2, err error) bool {
+// 	return dbError(w, err, db)
+// }
+
+func HasDBError(w http.ResponseWriter, err error, db httputil.DBInterfaceV2) bool {
+	return dbError(w, err, db)
 }
 
-func HasQueryOrDBError(w http.ResponseWriter, db httputil.DBInterfaceV2, err error, notFound string) bool {
+func HasQueryOrDBError(w http.ResponseWriter, err error, db httputil.DBInterfaceV2, notFound string) bool {
 	if err == sql.ErrNoRows {
 		w.WriteHeader(http.StatusNotFound)
 		w.Write([]byte(notFound))
 		return true
 	}
 
-	return dbError(w, db, err)
+	return dbError(w, err, db)
 }
+
+// func HasQueryOrDBError(w http.ResponseWriter, db httputil.DBInterfaceV2, err error, notFound string) bool {
+// 	if err == sql.ErrNoRows {
+// 		w.WriteHeader(http.StatusNotFound)
+// 		w.Write([]byte(notFound))
+// 		return true
+// 	}
+
+// 	return dbError(w, db, err)
+// }
 
 // func HasQueryOrServerError(w http.ResponseWriter, db httputil.DBInterfaceV2, err error, notFoundMessage string) bool {
 // 	if err == sql.ErrNoRows {

@@ -24,6 +24,14 @@ import (
 	"github.com/pkg/errors"
 )
 
+type FilterError struct {
+	field string
+}
+
+func (f FilterError) Error() string {
+	return fmt.Sprintf("invalid filter: '%s'", f.field)
+}
+
 const (
 	// Select string for queries
 	Select        = "select "
@@ -801,7 +809,7 @@ func SetRowerResults(
 }
 
 func HasFilterError(w http.ResponseWriter, err error) bool {
-	if err != nil {
+	if _, ok := err.(FilterError); ok {
 		w.WriteHeader(http.StatusNotAcceptable)
 		w.Write([]byte(err.Error()))
 		return true
@@ -848,8 +856,7 @@ func replaceFields(filters []*Filter, fieldNames []string) ([]interface{}, error
 		}
 
 		if !containsField {
-			err := fmt.Errorf(invalidFilter, v.Field)
-			return nil, err
+			return nil, FilterError{field: v.Field}
 		}
 	}
 

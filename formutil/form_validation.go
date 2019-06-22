@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TravisS25/httputil/dbutil"
+
 	"github.com/TravisS25/httputil/confutil"
 
 	"github.com/go-redis/redis"
@@ -838,7 +840,7 @@ func initRegexExpressions() {
 	RequiredStringRegex, _ = regexp.Compile(`[^\s\\]`)
 }
 
-func HasFormErrors(w http.ResponseWriter, err error) bool {
+func formErrors(w http.ResponseWriter, err error, db httputil.DBInterfaceV2) bool {
 	if err != nil {
 		confutil.CheckError(err, "")
 		switch err {
@@ -854,7 +856,11 @@ func HasFormErrors(w http.ResponseWriter, err error) bool {
 				jsonString, _ := json.Marshal(payload)
 				w.Write(jsonString)
 			} else {
-				w.WriteHeader(http.StatusInternalServerError)
+				if db == nil {
+					w.WriteHeader(http.StatusInternalServerError)
+				} else {
+					dbutil.HasDBError(w, err, db)
+				}
 			}
 		}
 
@@ -862,6 +868,14 @@ func HasFormErrors(w http.ResponseWriter, err error) bool {
 	}
 
 	return false
+}
+
+func HasFormErrors(w http.ResponseWriter, err error) bool {
+	return formErrors(w, err, nil)
+}
+
+func HasFormErrorsV2(w http.ResponseWriter, err error, db httputil.DBInterfaceV2) bool {
+	return formErrors(w, err, db)
 }
 
 func CheckBodyAndDecode(req *http.Request, form interface{}) error {
@@ -891,46 +905,19 @@ func CheckBodyAndDecodeV2(req *http.Request, form interface{}, excludeMethods ..
 		}
 	}
 
-	if !canSkip {
-		if req.Body != nil {
-			fmt.Printf("hbody nooooooot nillll\n")
-			fmt.Printf("body val: %s\n", req.Body)
-			dec := json.NewDecoder(req.Body)
-			err := dec.Decode(&form)
+	if req.Body != nil {
+		dec := json.NewDecoder(req.Body)
+		err := dec.Decode(&form)
 
-			if err != nil {
-				fmt.Printf(err.Error())
-				return ErrInvalidJSON
-			}
-		} else {
+		if err != nil {
+			fmt.Printf(err.Error())
+			return ErrInvalidJSON
+		}
+	} else {
+		if !canSkip {
 			return ErrBodyMessage
 		}
 	}
-
-	// if req.Body != nil {
-	// 	fmt.Printf("hbody nooooooot nillll\n")
-	// 	fmt.Printf("body val: %s\n", req.Body)
-	// 	dec := json.NewDecoder(req.Body)
-	// 	err := dec.Decode(&form)
-
-	// 	if err != nil {
-	// 		fmt.Printf(err.Error())
-	// 		return ErrInvalidJSON
-	// 	}
-	// } else {
-	// 	canSkip := false
-
-	// 	for _, v := range excludeMethods {
-	// 		if req.Method == v {
-	// 			canSkip = true
-	// 			break
-	// 		}
-	// 	}
-
-	// 	if !canSkip {
-	// 		return ErrBodyMessage
-	// 	}
-	// }
 
 	return nil
 }

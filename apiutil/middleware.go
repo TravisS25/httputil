@@ -128,7 +128,7 @@ func (m *Middleware) AuthMiddleware(w http.ResponseWriter, r *http.Request, next
 	// If session is considered new, that means
 	// either current user is truly not logged in or cache was/is down
 	if session.IsNew {
-		fmt.Printf("new session\n")
+		// fmt.Printf("new session\n")
 
 		// First we determine if user is sending a cookie with our user cookie key
 		// If they are, try retrieving from db if Middleware#QueryDB is set
@@ -198,7 +198,7 @@ func (m *Middleware) AuthMiddleware(w http.ResponseWriter, r *http.Request, next
 				next(w, r)
 			}
 		} else {
-			fmt.Printf("new session, no cookie\n")
+			// fmt.Printf("new session, no cookie\n")
 			next(w, r)
 		}
 	} else {
@@ -408,7 +408,7 @@ func (a *AuthHandler) MiddlewareFunc(next http.Handler) http.Handler {
 		// If session is considered new, that means
 		// either current user is truly not logged in or cache was/is down
 		if session.IsNew {
-			fmt.Printf("new session\n")
+			// fmt.Printf("new session\n")
 
 			// First we determine if user is sending a cookie with our user cookie key
 			// If they are, try retrieving from db if Middleware#QueryDB is set
@@ -478,7 +478,7 @@ func (a *AuthHandler) MiddlewareFunc(next http.Handler) http.Handler {
 					next.ServeHTTP(w, r)
 				}
 			} else {
-				fmt.Printf("new session, no cookie\n")
+				// fmt.Printf("new session, no cookie\n")
 				next.ServeHTTP(w, r)
 			}
 		} else {
@@ -526,7 +526,7 @@ func NewGroupHandler(
 
 func (g *GroupHandler) MiddlewareFunc(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Printf("group middleware\n")
+		//fmt.Printf("group middleware\n")
 		if r.Context().Value(MiddlewareUserCtxKey) != nil {
 			var groupMap map[string]bool
 
@@ -565,7 +565,7 @@ func (g *GroupHandler) MiddlewareFunc(next http.Handler) http.Handler {
 
 			next.ServeHTTP(w, r.WithContext(ctx))
 		} else {
-			fmt.Printf("no user group middleware\n")
+			//fmt.Printf("no user group middleware\n")
 			next.ServeHTTP(w, r)
 		}
 	})
@@ -600,7 +600,7 @@ func NewRoutingHandler(
 
 func (routing *RoutingHandler) MiddlewareFunc(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Printf("routing middleware\n")
+		// /fmt.Printf("routing middleware\n")
 		if r.Method != http.MethodOptions {
 			var urlBytes []byte
 			var err, cacheErr error
