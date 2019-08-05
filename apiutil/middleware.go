@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/TravisS25/httputil/confutil"
+
 	"github.com/go-redis/redis"
 	"github.com/urfave/negroni"
 
@@ -644,6 +646,7 @@ func (routing *RoutingHandler) MiddlewareFunc(next http.Handler) http.Handler {
 				err = json.Unmarshal(urlBytes, &urls)
 
 				if err != nil {
+					confutil.CheckError(err, "")
 					w.WriteHeader(http.StatusInternalServerError)
 					w.Write([]byte(err.Error()))
 					return

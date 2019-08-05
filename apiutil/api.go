@@ -9,6 +9,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/TravisS25/httputil/confutil"
+
 	"github.com/TravisS25/httputil/mailutil"
 	validation "github.com/go-ozzo/ozzo-validation"
 	"github.com/gorilla/csrf"
@@ -138,6 +140,7 @@ func SendPayload(w http.ResponseWriter, payload interface{}) {
 	jsonString, err := json.Marshal(payload)
 
 	if err != nil {
+		confutil.CheckError(err, "")
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(ErrInvalidJSON.Error()))
 	} else {

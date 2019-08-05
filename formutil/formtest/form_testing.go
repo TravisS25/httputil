@@ -263,32 +263,15 @@ func RunRequestFormTests(t *testing.T, deferFunc func() error, formTests []FormR
 							)
 						}
 					}
-
-					// if len(formTest.ValidationErrors) != len(validationErrors) {
-					// 	if len(formTest.ValidationErrors) > len(validationErrors) {
-					// 		for k := range formTest.ValidationErrors {
-					// 			if _, ok := validationErrors[k]; !ok {
-					// 				t.Errorf("Key \"%s\" found in \"ValidationErrors\" that is not in form errors", k)
-					// 			}
-					// 		}
-					// 	} else {
-					// 		for k, v := range validationErrors {
-					// 			if _, ok := formTest.ValidationErrors[k]; !ok {
-					// 				//t.Errorf("heeeey type: %v", validationErrors["invoiceItems"]["0"])
-					// 				t.Errorf(
-					// 					"Key \"%s\" found in form errors that is not in \"ValidationErrors\"\n  Threw err: %s",
-					// 					k,
-					// 					v.Error(),
-					// 				)
-					// 			}
-					// 		}
-					// 	}
-					// }
 				} else {
 					if formTest.InternalError != formErr.Error() {
 						t.Errorf("Internal Error: %s\n", formErr.Error())
 					}
 				}
+			}
+
+			if formTest.PostExecute != nil {
+				formTest.PostExecute()
 			}
 
 			panicked = false

@@ -96,13 +96,15 @@ type Database struct {
 	SSLMode  string `yaml:"ssl_mode"`
 }
 
-type S3Config struct {
-	IsProd  bool                  `yaml:"is_prod"`
-	Buckets map[string]*S3Storage `yaml:"buckets"`
-}
+// type S3Config struct {
+// 	IsProd  bool                  `yaml:"is_prod"`
+// 	Buckets map[string]*S3Storage `yaml:"buckets"`
+// }
+
+type S3Config map[string]S3Storage
 
 type S3Storage struct {
-	EndPoint        string `json:"end_point"`
+	EndPoint        string `yaml:"end_point"`
 	AccessKeyID     string `yaml:"access_key_id"`
 	SecretAccessKey string `yaml:"secret_access_key"`
 	UseSSL          bool   `yaml:"use_ssl"`
@@ -113,21 +115,21 @@ type Settings struct {
 	Prod bool `yaml:"prod"`
 	// AuthKey        string          `yaml:"auth_key"`
 	// EncryptKey     string          `yaml:"encrypt_key"`
-	Domain         string          `yaml:"domain"`
-	ClientDomain   string          `yaml:"client_domain"`
-	CSRF           string          `yaml:"csrf"`
-	TemplatesDir   string          `yaml:"templates_dir"`
-	HTTPS          bool            `yaml:"https"`
-	AssetsLocation string          `yaml:"assets_location"`
-	AllowedOrigins []string        `yaml:"allowed_origins"`
-	EmailConfig    *EmailConfig    `yaml:"email_config"`
-	Store          *StoreConfig    `yaml:"store"`
-	Cache          *CacheConfig    `yaml:"cache"`
-	DatabaseConfig *DatabaseConfig `yaml:"database_config"`
-	Stripe         *Stripe         `yaml:"stripe"`
-	S3Config       *S3Config       `yaml:"s3_config"`
+	Domain         string         `yaml:"domain"`
+	ClientDomain   string         `yaml:"client_domain"`
+	CSRF           string         `yaml:"csrf"`
+	TemplatesDir   string         `yaml:"templates_dir"`
+	HTTPS          bool           `yaml:"https"`
+	AssetsLocation string         `yaml:"assets_location"`
+	AllowedOrigins []string       `yaml:"allowed_origins"`
+	EmailConfig    EmailConfig    `yaml:"email_config"`
+	Store          StoreConfig    `yaml:"store"`
+	Cache          CacheConfig    `yaml:"cache"`
+	DatabaseConfig DatabaseConfig `yaml:"database_config"`
+	Stripe         Stripe         `yaml:"stripe"`
+	S3Config       S3Config       `yaml:"s3_config"`
 
-	Databases map[string][]*Database `yaml:"databases"`
-	Emails    map[string]*Email      `yaml:"emails"`
-	StripeMap map[string]*Stripe     `yaml:"stripe_map"`
+	Databases map[string][]Database `yaml:"databases"`
+	Emails    map[string]Email      `yaml:"emails"`
+	StripeMap map[string]Stripe     `yaml:"stripe_map"`
 }

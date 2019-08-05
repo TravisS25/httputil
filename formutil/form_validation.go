@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TravisS25/httputil/apiutil"
+
 	"github.com/TravisS25/httputil/dbutil"
 
 	"github.com/TravisS25/httputil/confutil"
@@ -51,6 +53,9 @@ var (
 
 	// ErrInvalidJSON is used when there is an error unmarshalling a struct
 	ErrInvalidJSON = errors.New("Invalid json")
+
+	// Required makes field required and does NOT allow just spaces
+	Required = &validateRequiredRule{message: RequiredTxt}
 )
 
 // Custom error messages used for form validation
@@ -124,7 +129,12 @@ func (i *Int64) UnmarshalJSON(b []byte) error {
 	// Try string first
 	var s string
 	if err := json.Unmarshal(b, &s); err == nil {
-		value, err := strconv.ParseInt(s, 10, 64)
+		if s == "" {
+			i = nil
+			return nil
+		}
+
+		value, err := strconv.ParseInt(s, 10, confutil.IntBitSize)
 		if err != nil {
 			return err
 		}
@@ -384,6 +394,31 @@ func (f *FormValidation) Exists(query string, args ...interface{}) (bool, error)
 	}
 
 	return true, nil
+}
+
+type validateRequiredRule struct {
+	message string
+}
+
+func (v *validateRequiredRule) Validate(value interface{}) error {
+	val, ok := value.(string)
+
+	if !ok {
+		return validation.NewInternalError(errors.New("Field to validate must be string"))
+	}
+
+	val = strings.TrimSpace(val)
+
+	if len(val) == 0 {
+		return validation.NewInternalError(errors.New(RequiredTxt))
+	}
+
+	return nil
+}
+
+func (v *validateRequiredRule) Error(message string) *validateRequiredRule {
+	v.message = message
+	return v
 }
 
 type validateDateRule struct {
@@ -739,8 +774,8 @@ func (v *validateIDsRule) Validate(value interface{}) error {
 	queryFunc := func() error {
 		rower, err := v.querier.Query(q, arguments...)
 
-		// fmt.Printf("query: %s\n", q)
-		// fmt.Printf("args: %v\n", arguments)
+		fmt.Printf("query: %s\n", q)
+		fmt.Printf("args: %v\n", arguments)
 
 		if err != nil {
 			errS := fmt.Errorf("query: %s  err: %s", q, err.Error())
@@ -773,7 +808,7 @@ func (v *validateIDsRule) Validate(value interface{}) error {
 			cacheBytes, err = v.cacheConfig.Cache.Get(v.cacheConfig.Key)
 		}
 
-		if err != nil && err != redis.Nil {
+		if err != nil {
 			err = queryFunc()
 		} else {
 			if singleID {
@@ -878,12 +913,64 @@ func HasFormErrorsV2(w http.ResponseWriter, err error, db httputil.DBInterfaceV2
 	return formErrors(w, err, db)
 }
 
+func GetFormSelections(
+	w http.ResponseWriter,
+	db httputil.DBInterfaceV2,
+	cache cacheutil.CacheStore,
+	bindVar int,
+	cacheKey,
+	query string,
+	args ...interface{},
+) ([]FormSelection, error) {
+	jsonBytes, err := cache.Get(cacheKey)
+	forms := make([]FormSelection, 0)
+
+	if err != nil {
+		query, args, err = queryutil.InQueryRebind(bindVar, query, args...)
+
+		if apiutil.HasServerError(w, err, "") {
+			return nil, err
+		}
+
+		rower, err := db.Query(query, args...)
+
+		if dbutil.HasDBError(w, err, db) {
+			return nil, err
+		}
+
+		for rower.Next() {
+			form := FormSelection{}
+			err = rower.Scan(
+				&form.Value,
+				&form.Text,
+			)
+
+			if dbutil.HasDBError(w, err, db) {
+				return nil, err
+			}
+
+			forms = append(forms, form)
+		}
+
+		return forms, nil
+	}
+
+	err = json.Unmarshal(jsonBytes, &forms)
+
+	if apiutil.HasServerError(w, err, "") {
+		return nil, err
+	}
+
+	return forms, nil
+}
+
 func CheckBodyAndDecode(req *http.Request, form interface{}) error {
 	if req.Body != nil {
 		dec := json.NewDecoder(req.Body)
 		err := dec.Decode(&form)
 
 		if err != nil {
+			confutil.CheckError(err, "")
 			return ErrInvalidJSON
 		}
 	} else {

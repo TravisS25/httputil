@@ -11,9 +11,11 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/TravisS25/httputil/apiutil"
@@ -71,9 +73,14 @@ type TestCase struct {
 	ExpectedBody string
 	// ContextValues is used for adding context values with request
 	ContextValues map[interface{}]interface{}
-	// Form is information that you wish to body of request
-	// This is generally used for post/put requests
+	// Header is for adding custom header to request
+	Header http.Header
+	// Form is json information you wish to post in body of request
 	Form interface{}
+	//URLValues is form information you wish to post in body of request
+	URLValues url.Values
+
+	File io.Reader
 	// Handler is the request handler that you which to test
 	Handler http.Handler
 	// ValidResponse allows user to take in response from api end
@@ -111,6 +118,11 @@ type Response struct {
 	ValidateResponseFunc func(bodyResponse io.Reader, expectedResult interface{}) error
 }
 
+type FileConfig struct {
+	File        io.Reader
+	ContentType string
+}
+
 func NewRequestWithForm(method, url string, form interface{}) (*http.Request, error) {
 	if form != nil {
 		var buffer bytes.Buffer
@@ -141,20 +153,44 @@ func RunTestCasesV2(t *testing.T, deferFunc func() error, testCases []TestCase) 
 			var req *http.Request
 			var err error
 
-			// If Form option is nil, init req without added parameters
-			// Else json encode given form and apply to request
-			if testCase.Form == nil {
+			// If Form and File options are nil, init req without added parameters
+			// Else check whether Form or file option is selected.
+			// Right now, File option will overide Form option
+			if testCase.Form == nil && testCase.File == nil {
 				req, err = http.NewRequest(testCase.Method, testCase.RequestURL, nil)
 			} else {
-				var buffer bytes.Buffer
-				encoder := json.NewEncoder(&buffer)
-				encoder.Encode(&testCase.Form)
-				req, err = http.NewRequest(testCase.Method, testCase.RequestURL, &buffer)
+				if testCase.File != nil {
+					req, err = http.NewRequest(testCase.Method, testCase.RequestURL, testCase.File)
+
+					if err != nil {
+						v.Fatal(err)
+					}
+
+					// req.Header.Set("Content-Type", testCase.FileConfig.ContentType)
+				} else if testCase.URLValues != nil {
+					req, err = http.NewRequest(testCase.Method, testCase.RequestURL, strings.NewReader(testCase.URLValues.Encode()))
+
+					if err != nil {
+						v.Fatal(err)
+					}
+				} else {
+					var buffer bytes.Buffer
+					encoder := json.NewEncoder(&buffer)
+					err = encoder.Encode(&testCase.Form)
+
+					if err != nil {
+						v.Fatal(err)
+					}
+
+					req, err = http.NewRequest(testCase.Method, testCase.RequestURL, &buffer)
+
+					if err != nil {
+						v.Fatal(err)
+					}
+				}
 			}
 
-			if err != nil {
-				v.Fatal(err)
-			}
+			req.Header = testCase.Header
 
 			// If ContextValues is not nil, apply given context values to req
 			if testCase.ContextValues != nil {
@@ -1093,9 +1129,24 @@ func LoginUser(url string, loginForm interface{}) (string, error) {
 
 // NewFileUploadRequest creates a new file upload http request with optional extra params
 func NewFileUploadRequest(uri string, params map[string]string, paramName, path string) (*http.Request, error) {
-	file, err := os.Open(path)
+	body, contentType, err := FileBody(params, paramName, path)
+
 	if err != nil {
 		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", uri, body)
+	req.Header.Set("Content-Type", contentType)
+	return req, err
+}
+
+// FileBody is used to encapulate a form file request
+// Returns io.Reader of the file from path parameter along with
+// form content type
+func FileBody(params map[string]string, paramName, path string) (io.Reader, string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, "", err
 	}
 	defer file.Close()
 
@@ -1103,21 +1154,27 @@ func NewFileUploadRequest(uri string, params map[string]string, paramName, path 
 	writer := multipart.NewWriter(body)
 	part, err := writer.CreateFormFile(paramName, filepath.Base(path))
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	_, err = io.Copy(part, file)
 
+	if err != nil {
+		return nil, "", err
+	}
+
 	for key, val := range params {
-		_ = writer.WriteField(key, val)
+		err = writer.WriteField(key, val)
+
+		if err != nil {
+			return nil, "", err
+		}
 	}
 	err = writer.Close()
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
-	req, err := http.NewRequest("POST", uri, body)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	return req, err
+	return body, writer.FormDataContentType(), nil
 }
 
 func CheckResponse(method, url string, expectedStatus int, header http.Header, form interface{}) (*http.Response, error) {

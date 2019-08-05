@@ -79,3 +79,8 @@ type DBInterfaceV2 interface {
 	DBInterface
 	RecoverError(err error) bool
 }
+
+type FormSelection struct {
+	Text  interface{} `json:"text"`
+	Value interface{} `json:"value"`
+}

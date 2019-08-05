@@ -120,6 +120,12 @@ type CacheValidateConfig struct {
 	Key   string
 }
 
+type FormSelectionConfig struct {
+	TextColumn       string
+	ValueColumn      string
+	FormSelectionKey string
+}
+
 // CacheSetup is configuration struct used to setup caching database tables
 // that generally do not insert/update often
 //
@@ -134,4 +140,8 @@ type CacheSetup struct {
 
 	// CacheListKey should be the key value you will store the whole table in cache
 	CacheListKey string
+
+	OrderByColumn string
+
+	FormSelectionConf *FormSelectionConfig
 }

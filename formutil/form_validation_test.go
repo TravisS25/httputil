@@ -1,12 +1,37 @@
 package formutil
 
-import "testing"
+import (
+	"bytes"
+	"encoding/json"
+	"testing"
+)
 
 type TestFormCacheValidation struct {
 	Foo string `json:"foo"`
 	Boo string `json:"boo"`
 
 	FormValidation
+}
+
+func TestInt64(t *testing.T) {
+	//r, _ := http.NewRequest(http.MethodGet, "/url", nil)
+	type test struct {
+		Foo Int64 `json:"foo"`
+	}
+
+	var v test
+
+	b := &bytes.Buffer{}
+	b.WriteString(`{"foo": null}`)
+
+	dec := json.NewDecoder(b)
+	err := dec.Decode(&v)
+
+	if err != nil {
+		t.Errorf("error: %s", err.Error())
+	}
+
+	t.Errorf("foo value %v", v.Foo)
 }
 
 func TestValidateDateRule(t *testing.T) {

@@ -62,7 +62,7 @@ type Count struct {
 }
 
 // NewCustomTx return *CustomTx
-// CustomTx is extends off of the sql.Tx library
+// CustomTx extends off of the sql.Tx library
 // but adds some functionality like the Select and
 // Get functions that are wrappers for the sqlx.Select and
 // sqlx.Get functions
@@ -115,9 +115,8 @@ func (c *CustomTx) Select(dest interface{}, query string, args ...interface{}) e
 // DB extends sqlx.DB with some extra functions
 type DB struct {
 	*sqlx.DB
-	dbConfigList []*confutil.Database
+	dbConfigList []confutil.Database
 	dbType       string
-	validConn    bool
 	mu           sync.Mutex
 }
 
@@ -201,7 +200,7 @@ func (db *DB) RecoverError(err error) bool {
 
 // NewDB is function that returns *DB with given DB config
 // If db connection fails, returns error
-func NewDB(dbConfig *confutil.Database, dbType string) (*DB, error) {
+func NewDB(dbConfig confutil.Database, dbType string) (*DB, error) {
 	dbInfo := fmt.Sprintf(
 		"host=%s user=%s password=%s dbname=%s port=%s sslmode=%s",
 		dbConfig.Host,
@@ -219,10 +218,10 @@ func NewDB(dbConfig *confutil.Database, dbType string) (*DB, error) {
 	if err = db.Ping(); err != nil {
 		return nil, err
 	}
-	return &DB{DB: db, validConn: true}, nil
+	return &DB{DB: db}, nil
 }
 
-func NewDBWithList(dbConfigList []*confutil.Database, dbType string) (*DB, error) {
+func NewDBWithList(dbConfigList []confutil.Database, dbType string) (*DB, error) {
 	if len(dbConfigList) == 0 {
 		return nil, ErrEmptyConfigList
 	}
@@ -233,28 +232,13 @@ func NewDBWithList(dbConfigList []*confutil.Database, dbType string) (*DB, error
 		if err == nil {
 			newDB.dbConfigList = dbConfigList
 			newDB.dbType = dbType
-			newDB.validConn = true
+			//newDB.validConn = true
 			return newDB, nil
 		}
 	}
 
 	return nil, ErrNoConnection
 }
-
-// func dbError(w http.ResponseWriter, db httputil.DBInterfaceV2, err error) bool {
-// 	if err != nil {
-// 		confutil.CheckError(err, "")
-
-// 		if db.RecoverError(err) {
-// 			w.WriteHeader(http.StatusTemporaryRedirect)
-// 			return true
-// 		}
-
-// 		return true
-// 	}
-
-// 	return false
-// }
 
 func dbError(w http.ResponseWriter, err error, db httputil.DBInterfaceV2) bool {
 	if err != nil {
@@ -298,34 +282,6 @@ func HasQueryOrDBError(w http.ResponseWriter, err error, db httputil.DBInterface
 
 	return dbError(w, err, db)
 }
-
-// func HasQueryOrDBError(w http.ResponseWriter, db httputil.DBInterfaceV2, err error, notFound string) bool {
-// 	if err == sql.ErrNoRows {
-// 		w.WriteHeader(http.StatusNotFound)
-// 		w.Write([]byte(notFound))
-// 		return true
-// 	}
-
-// 	return dbError(w, db, err)
-// }
-
-// func HasQueryOrServerError(w http.ResponseWriter, db httputil.DBInterfaceV2, err error, notFoundMessage string) bool {
-// 	if err == sql.ErrNoRows {
-// 		w.WriteHeader(http.StatusNotFound)
-// 		w.Write([]byte(notFoundMessage))
-// 		return true
-// 	} else {
-
-// 	}
-
-// 	if db.RecoverError(err) {
-// 		w.WriteHeader(http.StatusTemporaryRedirect)
-// 		return false
-// 	}
-
-// 	apiutil.ServerError(w, err, "")
-// 	return true
-// }
 
 // QueryCount is used for queries that consist of count in select statement
 func QueryCount(db httputil.SqlxDB, query string, args ...interface{}) (*Count, error) {
