@@ -405,7 +405,8 @@ func applyAll(
 	sortEncoded := r.FormValue("sort")
 
 	if take == "" {
-		intTake = uint64(10)
+		take = "0"
+		intTake = uint64(0)
 	} else {
 		intTake, err = strconv.ParseUint(take, 10, 32)
 
@@ -489,15 +490,14 @@ func applyAll(
 		}
 	}
 
-	if intTake != uint64(0) {
-		if applyConfig != nil {
-			if applyConfig.ApplyLimit {
-				ApplyLimit(query)
-			}
-		} else {
+	if applyConfig != nil {
+		if applyConfig.ApplyLimit {
+			varReplacements = append(varReplacements, take, skip)
 			ApplyLimit(query)
 		}
-		varReplacements = append(varReplacements, intTake, skip)
+	} else {
+		varReplacements = append(varReplacements, take, skip)
+		ApplyLimit(query)
 	}
 
 	*query, varReplacements, err = InQueryRebind(bindVar, *query, varReplacements...)
@@ -673,6 +673,7 @@ func GetFilteredResultsV2(
 	)
 
 	if err != nil {
+		confutil.CheckError(err, "")
 		fmt.Printf("error 1")
 		return nil, 0, nil, nil, err
 	}

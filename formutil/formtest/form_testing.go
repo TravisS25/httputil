@@ -47,7 +47,7 @@ type FormRequestConfig struct {
 
 	// PostExecute can be used to exec some logic that you may need to run inbetween test cases
 	// such as clean up logic before the next test is run - Optional
-	PostExecute func()
+	PostExecute func(form interface{})
 
 	// ValidationErrors is a map of what errors you expect to return from test
 	// The key is the json name of the field and value is the error message the
@@ -185,6 +185,7 @@ func RunRequestFormTests(t *testing.T, deferFunc func() error, formTests []FormR
 
 		t.Run(formTest.TestName, func(t *testing.T) {
 			var formErr error
+			var form interface{}
 
 			panicked := true
 			defer func() {
@@ -225,7 +226,7 @@ func RunRequestFormTests(t *testing.T, deferFunc func() error, formTests []FormR
 
 				req = mux.SetURLVars(req, formTest.RouterValues)
 				req = mux.SetCurrentRoute(req, formTest.URL)
-				_, formErr = formTest.Validator.Validate(req, formTest.Instance)
+				form, formErr = formTest.Validator.Validate(req, formTest.Instance)
 			}
 
 			if formErr == nil {
@@ -234,7 +235,7 @@ func RunRequestFormTests(t *testing.T, deferFunc func() error, formTests []FormR
 				}
 			} else {
 				if validationErrors, ok := formErr.(validation.Errors); ok {
-					fmt.Printf("validation err: %v\n", validationErrors)
+					//fmt.Printf("validation err: %v\n", validationErrors)
 
 					for key, expectedVal := range formTest.ValidationErrors {
 						if fErr, valid := validationErrors[key]; valid {
@@ -271,7 +272,7 @@ func RunRequestFormTests(t *testing.T, deferFunc func() error, formTests []FormR
 			}
 
 			if formTest.PostExecute != nil {
-				formTest.PostExecute()
+				formTest.PostExecute(form)
 			}
 
 			panicked = false

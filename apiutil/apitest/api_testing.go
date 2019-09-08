@@ -1051,6 +1051,8 @@ func SetJSONFromResponse(bodyResponse io.Reader, item interface{}) error {
 		return err
 	}
 
+	fmt.Printf("repsonse: %s", string(response))
+
 	err = json.Unmarshal(response, &item)
 
 	if err != nil {

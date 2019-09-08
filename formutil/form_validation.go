@@ -456,7 +456,7 @@ func (v *validateDateRule) Validate(value interface{}) error {
 	}
 
 	if v.timezone != "" {
-		currentTime, err = timeutil.GetCurrentLocalDateTimeInUTC(v.timezone)
+		currentTime, err = timeutil.GetCurrentLocalDateInUTC(v.timezone)
 
 		if err != nil {
 			return validation.NewInternalError(err)
@@ -774,8 +774,8 @@ func (v *validateIDsRule) Validate(value interface{}) error {
 	queryFunc := func() error {
 		rower, err := v.querier.Query(q, arguments...)
 
-		fmt.Printf("query: %s\n", q)
-		fmt.Printf("args: %v\n", arguments)
+		// fmt.Printf("query: %s\n", q)
+		// fmt.Printf("args: %v\n", arguments)
 
 		if err != nil {
 			errS := fmt.Errorf("query: %s  err: %s", q, err.Error())
@@ -788,8 +788,8 @@ func (v *validateIDsRule) Validate(value interface{}) error {
 		}
 
 		if expectedLen != counter {
-			fmt.Printf("counter: %v\n", counter)
-			fmt.Printf("len: %v\n", expectedLen)
+			// fmt.Printf("counter: %v\n", counter)
+			// fmt.Printf("len: %v\n", expectedLen)
 			return errors.New(v.message)
 		}
 
@@ -922,10 +922,8 @@ func GetFormSelections(
 	query string,
 	args ...interface{},
 ) ([]FormSelection, error) {
-	jsonBytes, err := cache.Get(cacheKey)
-	forms := make([]FormSelection, 0)
-
-	if err != nil {
+	var err error
+	getFormSelectionsFromDB := func() ([]FormSelection, error) {
 		query, args, err = queryutil.InQueryRebind(bindVar, query, args...)
 
 		if apiutil.HasServerError(w, err, "") {
@@ -937,6 +935,8 @@ func GetFormSelections(
 		if dbutil.HasDBError(w, err, db) {
 			return nil, err
 		}
+
+		forms := make([]FormSelection, 0)
 
 		for rower.Next() {
 			form := FormSelection{}
@@ -955,6 +955,17 @@ func GetFormSelections(
 		return forms, nil
 	}
 
+	if cache == nil {
+		return getFormSelectionsFromDB()
+	}
+
+	jsonBytes, err := cache.Get(cacheKey)
+	forms := make([]FormSelection, 0)
+
+	if err != nil {
+		return getFormSelectionsFromDB()
+	}
+
 	err = json.Unmarshal(jsonBytes, &forms)
 
 	if apiutil.HasServerError(w, err, "") {
@@ -962,6 +973,44 @@ func GetFormSelections(
 	}
 
 	return forms, nil
+
+	// if err != nil {
+	// 	query, args, err = queryutil.InQueryRebind(bindVar, query, args...)
+
+	// 	if apiutil.HasServerError(w, err, "") {
+	// 		return nil, err
+	// 	}
+
+	// 	rower, err := db.Query(query, args...)
+
+	// 	if dbutil.HasDBError(w, err, db) {
+	// 		return nil, err
+	// 	}
+
+	// 	for rower.Next() {
+	// 		form := FormSelection{}
+	// 		err = rower.Scan(
+	// 			&form.Value,
+	// 			&form.Text,
+	// 		)
+
+	// 		if dbutil.HasDBError(w, err, db) {
+	// 			return nil, err
+	// 		}
+
+	// 		forms = append(forms, form)
+	// 	}
+
+	// 	return forms, nil
+	// }
+
+	// err = json.Unmarshal(jsonBytes, &forms)
+
+	// if apiutil.HasServerError(w, err, "") {
+	// 	return nil, err
+	// }
+
+	// return forms, nil
 }
 
 func CheckBodyAndDecode(req *http.Request, form interface{}) error {
