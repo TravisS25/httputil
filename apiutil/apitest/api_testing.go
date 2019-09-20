@@ -31,6 +31,10 @@ const (
 )
 
 const (
+	IDParam = "{id:[0-9]+}"
+)
+
+const (
 	intMapIDResult = iota + 1
 	int64MapIDResult
 	intArrayIDResult
@@ -79,7 +83,9 @@ type TestCase struct {
 	Form interface{}
 	//URLValues is form information you wish to post in body of request
 	URLValues url.Values
-
+	// File is used to simulate a file be uploaded in request
+	// Use the Header option to add additional when needed
+	// Eg. "Content-type"
 	File io.Reader
 	// Handler is the request handler that you which to test
 	Handler http.Handler
