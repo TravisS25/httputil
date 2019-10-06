@@ -9,6 +9,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/gorilla/mux"
+
 	"github.com/TravisS25/httputil/confutil"
 
 	"github.com/TravisS25/httputil/mailutil"
@@ -388,4 +390,37 @@ func SetSecureCookie(w http.ResponseWriter, session *sessions.Session, keyPairs 
 	}
 	http.SetCookie(w, sessions.NewCookie(session.Name(), encoded, session.Options))
 	return nil
+}
+
+func GetRouterExpressionPaths(r *mux.Router, paths map[int]string) (map[int]string, error) {
+	pathExps := make(map[int]string, len(paths))
+
+	err := r.Walk(func(route *mux.Route, router *mux.Router, ancestors []*mux.Route) error {
+		exp, err := route.GetPathRegexp()
+
+		if err != nil {
+			return err
+		}
+
+		//fmt.Printf("exp: %s\n", exp)
+
+		path, err := route.GetPathTemplate()
+
+		fmt.Printf("path: %s\n", path)
+
+		if err != nil {
+			return err
+		}
+
+		for k, v := range paths {
+			if v == path {
+				pathExps[k] = exp
+				break
+			}
+		}
+
+		return nil
+	})
+
+	return pathExps, err
 }

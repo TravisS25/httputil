@@ -621,8 +621,8 @@ func (v *validateUniquenessRule) Validate(value interface{}) error {
 		return nil
 	}
 
-	// fmt.Printf("instance: %s\n", v.instanceValue)
-	// fmt.Printf("value: %s\n", value)
+	fmt.Printf("instance: %s\n", v.instanceValue)
+	fmt.Printf("value: %s\n", value)
 
 	if v.instanceValue == value {
 		return nil

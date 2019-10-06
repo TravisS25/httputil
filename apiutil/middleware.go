@@ -61,7 +61,7 @@ type InsertLogger interface {
 	InsertLog(r *http.Request, payload string, db httputil.DBInterface) error
 }
 
-type QueryDB func(res *http.Request, db httputil.DBInterface) ([]byte, error)
+type QueryDB func(w http.ResponseWriter, res *http.Request, db httputil.DBInterfaceV2) ([]byte, error)
 
 type Middleware struct {
 	CacheStore   cacheutil.CacheStore
@@ -365,31 +365,35 @@ func (m *Middleware) RoutingMiddleware(w http.ResponseWriter, r *http.Request, n
 // -----------------------------------------------------------
 
 type AuthHandler struct {
-	handler      http.Handler
-	sessionStore cacheutil.SessionStore
-	db           httputil.DBInterface
-	queryDB      QueryDB
-	sessionKeys  *cacheutil.SessionConfig
+	handler         http.Handler
+	sessionStore    cacheutil.SessionStore
+	db              httputil.DBInterfaceV2
+	queryForUser    QueryDB
+	queryForSession func(http.ResponseWriter, httputil.DBInterfaceV2, string) (string, error)
+	sessionKeys     *cacheutil.SessionConfig
 }
 
 func NewAuthHandler(
-	//handler http.Handler,
-	db httputil.DBInterface,
-	queryDB QueryDB,
+	db httputil.DBInterfaceV2,
+	queryForUser QueryDB,
+	queryForSession func(http.ResponseWriter, httputil.DBInterfaceV2, string) (string, error),
 	sessionStore cacheutil.SessionStore,
 	sessionKeys *cacheutil.SessionConfig,
 ) *AuthHandler {
 	return &AuthHandler{
 		//handler:      handler,
-		sessionStore: sessionStore,
-		sessionKeys:  sessionKeys,
-		db:           db,
-		queryDB:      queryDB,
+		sessionStore:    sessionStore,
+		sessionKeys:     sessionKeys,
+		db:              db,
+		queryForUser:    queryForUser,
+		queryForSession: queryForSession,
+		//queryDB:      queryDB,
 	}
 }
 
 func (a *AuthHandler) MiddlewareFunc(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		//fmt.Printf("auth middleware\n")
 		var middlewareUser middlewareUser
 		var session *sessions.Session
 		var err error
@@ -402,7 +406,7 @@ func (a *AuthHandler) MiddlewareFunc(next http.Handler) http.Handler {
 		session, err = a.sessionStore.Get(r, a.sessionKeys.SessionName)
 
 		if err != nil {
-			fmt.Printf("no session err: %s\n", err.Error())
+			//fmt.Printf("no session err: %s\n", err.Error())
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
@@ -410,15 +414,15 @@ func (a *AuthHandler) MiddlewareFunc(next http.Handler) http.Handler {
 		// If session is considered new, that means
 		// either current user is truly not logged in or cache was/is down
 		if session.IsNew {
-			// fmt.Printf("new session\n")
+			//fmt.Printf("new session\n")
 
 			// First we determine if user is sending a cookie with our user cookie key
 			// If they are, try retrieving from db if Middleware#QueryDB is set
 			if _, err := r.Cookie(a.sessionKeys.SessionName); err == nil {
-				fmt.Printf("has cookie but not found in store\n")
-				if a.db != nil && a.queryDB != nil {
-					fmt.Printf("auth middleware db\n")
-					userBytes, err := a.queryDB(r, a.db)
+				//fmt.Printf("has cookie but not found in store\n")
+				if a.db != nil && a.queryForUser != nil {
+					//fmt.Printf("auth middleware db\n")
+					userBytes, err := a.queryForUser(w, r, a.db)
 
 					if err != nil {
 						switch err.(type) {
@@ -449,8 +453,8 @@ func (a *AuthHandler) MiddlewareFunc(next http.Handler) http.Handler {
 					// database and set it to session backend and use that instead of database
 					// for future requests
 					if _, err = a.sessionStore.Ping(); err == nil {
-						fmt.Printf("ping successful\n")
-						sessionIDBytes, err := a.queryDB(r, a.db)
+						//fmt.Printf("ping successful\n")
+						sessionIDBytes, err := a.queryForSession(w, a.db, middlewareUser.ID)
 
 						if err != nil {
 							if err == sql.ErrNoRows {
@@ -470,7 +474,7 @@ func (a *AuthHandler) MiddlewareFunc(next http.Handler) http.Handler {
 						fmt.Printf("session id: %s\n", session.ID)
 						session.Values[a.sessionKeys.UserKey] = userBytes
 						session.Save(r, w)
-						fmt.Printf("set session into store \n")
+						//fmt.Printf("set session into store \n")
 					}
 
 					ctx := context.WithValue(r.Context(), UserCtxKey, userBytes)
@@ -480,11 +484,13 @@ func (a *AuthHandler) MiddlewareFunc(next http.Handler) http.Handler {
 					next.ServeHTTP(w, r)
 				}
 			} else {
-				// fmt.Printf("new session, no cookie\n")
+				//fmt.Printf("new session, no cookie\n")
 				next.ServeHTTP(w, r)
 			}
 		} else {
+			//fmt.Printf("not new session")
 			if val, ok := session.Values[a.sessionKeys.UserKey]; ok {
+				//fmt.Printf("found in session")
 				userBytes := val.([]byte)
 
 				err := json.Unmarshal(val.([]byte), &middlewareUser)
@@ -508,13 +514,13 @@ func (a *AuthHandler) MiddlewareFunc(next http.Handler) http.Handler {
 type GroupHandler struct {
 	//handler    http.Handler
 	cacheStore cacheutil.CacheStore
-	db         httputil.DBInterface
+	db         httputil.DBInterfaceV2
 	queryDB    QueryDB
 }
 
 func NewGroupHandler(
 	//handler http.Handler,
-	db httputil.DBInterface,
+	db httputil.DBInterfaceV2,
 	queryDB QueryDB,
 	cacheStore cacheutil.CacheStore,
 ) *GroupHandler {
@@ -539,12 +545,12 @@ func (g *GroupHandler) MiddlewareFunc(next http.Handler) http.Handler {
 			if err != nil {
 				if err != redis.Nil {
 					if g.db != nil && g.queryDB != nil {
-						fmt.Printf("group middleware db\n")
-						groupBytes, err = g.queryDB(r, g.db)
+						//fmt.Printf("group middleware db\n")
+						groupBytes, err = g.queryDB(w, r, g.db)
 
 						if err != nil {
 							if err == sql.ErrNoRows {
-								fmt.Printf("group middleware db no row found\n")
+								//fmt.Printf("group middleware db no row found\n")
 								next.ServeHTTP(w, r)
 								return
 							}
@@ -562,6 +568,7 @@ func (g *GroupHandler) MiddlewareFunc(next http.Handler) http.Handler {
 				}
 			}
 
+			fmt.Printf("")
 			json.Unmarshal(groupBytes, &groupMap)
 			ctx := context.WithValue(r.Context(), GroupCtxKey, groupMap)
 
@@ -576,7 +583,7 @@ func (g *GroupHandler) MiddlewareFunc(next http.Handler) http.Handler {
 type RoutingHandler struct {
 	//handler     http.Handler
 	cacheStore  cacheutil.CacheStore
-	db          httputil.DBInterface
+	db          httputil.DBInterfaceV2
 	queryDB     QueryDB
 	pathRegex   httputil.PathRegex
 	nonUserURLs map[string]bool
@@ -584,7 +591,7 @@ type RoutingHandler struct {
 
 func NewRoutingHandler(
 	//handler http.Handler,
-	db httputil.DBInterface,
+	db httputil.DBInterfaceV2,
 	queryDB QueryDB,
 	cacheStore cacheutil.CacheStore,
 	pathRegex httputil.PathRegex,
@@ -602,7 +609,7 @@ func NewRoutingHandler(
 
 func (routing *RoutingHandler) MiddlewareFunc(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// /fmt.Printf("routing middleware\n")
+		//fmt.Printf("routing middleware\n")
 		if r.Method != http.MethodOptions {
 			var urlBytes []byte
 			var err, cacheErr error
@@ -612,19 +619,21 @@ func (routing *RoutingHandler) MiddlewareFunc(next http.Handler) http.Handler {
 			allowedPath := false
 
 			if user != nil {
+				//fmt.Printf("routing user\n")
 				user := r.Context().Value(MiddlewareUserCtxKey).(middlewareUser)
 				key := fmt.Sprintf(URLKey, user.Email)
 				urlBytes, cacheErr = routing.cacheStore.Get(key)
 
 				if cacheErr != nil {
+					fmt.Printf("chache err")
 					if err != redis.Nil {
 						if routing.db != nil && routing.queryDB != nil {
-							fmt.Printf("routing middleware db\n")
-							urlBytes, err = routing.queryDB(r, routing.db)
+							//fmt.Printf("routing middleware db\n")
+							urlBytes, err = routing.queryDB(w, r, routing.db)
 
 							if err != nil {
 								if err == sql.ErrNoRows {
-									fmt.Printf("routing middleware db no row found\n")
+									//fmt.Printf("routing middleware db no row found\n")
 									next.ServeHTTP(w, r)
 									return
 								}
@@ -652,10 +661,13 @@ func (routing *RoutingHandler) MiddlewareFunc(next http.Handler) http.Handler {
 					return
 				}
 
+				//fmt.Printf("user path urls: %v\n", urls)
 				if _, ok := urls[pathExp]; ok {
 					allowedPath = true
 				}
 			} else {
+				//fmt.Printf("non user\n")
+				//fmt.Printf("non user urls: %v\n", routing.nonUserURLs)
 				if _, ok := routing.nonUserURLs[pathExp]; ok {
 					allowedPath = true
 				}

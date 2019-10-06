@@ -137,7 +137,6 @@ func NewRequestWithForm(method, url string, form interface{}) (*http.Request, er
 		return http.NewRequest(method, url, &buffer)
 	}
 
-	fmt.Printf("past form nil\n")
 	return http.NewRequest(method, url, nil)
 }
 
