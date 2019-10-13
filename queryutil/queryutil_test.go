@@ -1,143 +1,331 @@
 package queryutil
 
-// func TestApplyGrouping(t *testing.T) {
-// 	//var filterArray []Filter
-// 	filter := `%5B%7B"field"%3A"email"%2C"operator"%3A"contains"%2C"value"%3A"t"%7D%2C%7B"field"%3A"phoneNumber"%2C"operator"%3A"startswith"%2C"value"%3A"5"%7D%5D`
-// 	// boom, err := url.QueryUnescape(filter)
+import (
+	"regexp"
+	"strings"
+	"testing"
 
-// 	// if err != nil {
-// 	// 	t.Errorf("decode boom: %s", err)
-// 	// }
+	"github.com/jmoiron/sqlx"
 
-// 	// err = json.Unmarshal([]byte(boom), &filterArray)
+	"github.com/TravisS25/httputil"
+)
 
-// 	// if err != nil {
-// 	// 	fmt.Printf(boom)
-// 	// 	t.Errorf("decode err: %s", err)
-// 	// }
+type MockRower struct {
+	getScan    func(dest ...interface{}) error
+	getNext    func() bool
+	getColumns func() ([]string, error)
+}
 
-// 	query :=
-// 		`
-// 		select
-// 			c.*,
-// 			call_status.status as "call_status.status",
-// 			state.name as "state.name",
-// 			area.area_name as "area.area_name"
-// 			from
-// 				contractor c
-// 			join
-// 				call_status on c.call_status_id = call_status.id
-// 			join
-// 				area on c.area_id = area.id
-// 			join
-// 				state on c.state_id = state.id
-// 		`
+func (m *MockRower) Scan(dest ...interface{}) error {
+	return m.getScan(dest...)
+}
 
-// 	err := ApplyFilter(&query, true, filter)
+func (m *MockRower) Next() bool {
+	return m.getNext()
+}
 
-// 	if err != nil {
-// 		t.Errorf("decode err: %s", err)
-// 	}
+func (m *MockRower) Columns() ([]string, error) {
+	return m.getColumns()
+}
 
-// 	t.Errorf("query value err: %s", query)
+type MockQuerier struct {
+	getQuery    func(query string, args ...interface{}) (httputil.Rower, error)
+	getQueryRow func(query string, args ...interface{}) httputil.Scanner
+}
 
-// 	newString := sqlx.Rebind(sqlx.DOLLAR, query)
+func (m *MockQuerier) Query(query string, args ...interface{}) (httputil.Rower, error) {
+	return m.getQuery(query, args...)
+}
 
-// 	t.Errorf("new string: %s", newString)
-
-// }
+func (m *MockQuerier) QueryRow(query string, args ...interface{}) httputil.Scanner {
+	return m.getQueryRow(query, args...)
+}
 
 type MockFormRequest struct{}
 
 func (m *MockFormRequest) FormValue(key string) string {
-	if key == "take" {
-		return "20"
-	} else if key == "skip" {
-		return "0"
-	} else if key == "filters" {
-		return `%5B%7B"field"%3A"email"%2C"operator"%3A"contains"%2C"value"%3A"t"%7D%2C%7B"field"%3A"phoneNumber"%2C"operator"%3A"startswith"%2C"value"%3A"5"%7D%5D`
-	} else {
-		return `%7B"dir"%3A"asc"%2C"field"%3A"city"%7D`
+	switch key {
+	case "groups":
+		return `[{"field": "foo.statusID"}]`
+	case "filters":
+		return `[{"field": "foo.number", "operator": "eq", "value":"test"}]`
+	case "sorts":
+		return `[{"field": "foo.dateExpired", "dir": "desc"}]`
+	case "take":
+		return `20`
+	case "skip":
+		return `0`
+	case "invalid":
+		return `invalid`
+	default:
+		return ""
 	}
 }
 
-// func TestApplyAll(t *testing.T) {
-// 	mockFormRequest := &MockFormRequest{}
-// 	countQuery :=
-// 		`
-// 	select
-// 		count(c.id) as count
-// 		from
-// 			contractor c
-// 		join
-// 			call_status on c.call_status_id = call_status.id
-// 		join
-// 			area on c.area_id = area.id
-// 		join
-// 			state on c.state_id = state.id
-// 	`
+var (
+	groupExp        = regexp.MustCompile(`(?i)(\n|\t|\s)group(\n|\t|\s)`)
+	sortExp         = regexp.MustCompile(`(?i)(\n|\t|\s)order(\n|\t|\s)`)
+	testMockRequest = &MockFormRequest{}
+	testQuery       = `
+	select 
+		foo.*
+	from
+		foo
+	where
+		foo.name = 'test'
+`
+	testFields = map[string]FieldConfig{
+		"foo.number": FieldConfig{
+			DBField: "foo.number",
+			OperationConf: OperationConfig{
+				CanFilterBy: true,
+				CanGroupBy:  true,
+				CanSortBy:   true,
+			},
+		},
+		"foo.dateExpired": FieldConfig{
+			DBField: "foo.date_expired",
+			OperationConf: OperationConfig{
+				CanFilterBy: true,
+				CanGroupBy:  true,
+				CanSortBy:   true,
+			},
+		},
+		"foo.statusID": FieldConfig{
+			DBField: "foo.status_id",
+			OperationConf: OperationConfig{
+				CanFilterBy: true,
+				CanGroupBy:  true,
+				CanSortBy:   true,
+			},
+		},
+	}
+)
 
-// 	query :=
-// 		`
-// 		select
-// 			c.*,
-// 			call_status.status as "call_status.status",
-// 			state.name as "state.name",
-// 			area.area_name as "area.area_name"
-// 			from
-// 				contractor c
-// 			join
-// 				call_status on c.call_status_id = call_status.id
-// 			join
-// 				area on c.area_id = area.id
-// 			join
-// 				state on c.state_id = state.id
-// 		`
-// 	queryWithArea := query + " where contractor.area_id = ? and "
-// 	countQueryWithArea := countQuery + " where contractor.area_id = ? and "
+func TestDecodeFilters(t *testing.T) {
+	var filters []Filter
+	var err error
 
-// 	replacements, err := ApplyAll(mockFormRequest, &query, true, true, sqlx.DOLLAR, nil)
+	if filters, err = DecodeFilters(testMockRequest, "filters"); err != nil {
+		t.Fatalf(err.Error())
+	}
 
-// 	if err != nil {
-// 		t.Errorf("apply filter err: %s", err)
-// 	}
+	if len(filters) != 1 {
+		t.Fatalf("Should have one replacement variable\n")
+	}
+}
 
-// 	t.Errorf("replacement1: %s\n", replacements)
-// 	t.Errorf("query: %s\n", query)
+func TestReplaceFilterFields(t *testing.T) {
+	f := []Filter{
+		{
+			Field:    "foo.number",
+			Operator: "eq",
+			Value:    "test",
+		},
+	}
+	r, err := ReplaceFilterFields(
+		&testQuery, f, testFields,
+	)
 
-// 	replacements2, err := ApplyAll(mockFormRequest, &queryWithArea, false, true, sqlx.DOLLAR, []interface{}{"1"})
+	if err != nil {
+		t.Fatalf(err.Error())
+	}
 
-// 	if err != nil {
-// 		t.Errorf("apply filter err: %s", err)
-// 	}
+	if len(r) != 1 {
+		t.Fatalf("Should have replacement variable of 1; got %d\n", len(r))
+	}
+}
 
-// 	t.Errorf("replacement2", replacements2)
-// 	t.Errorf("queryWithArea: %s\n", queryWithArea)
+func TestGetFilterReplacements(t *testing.T) {
+	var r []interface{}
+	var err error
+	q := testQuery
 
-// 	replacements, err = ApplyAll(mockFormRequest, &countQuery, true, false, sqlx.DOLLAR, nil)
+	if _, r, err = GetFilterReplacements(
+		testMockRequest,
+		&q,
+		"filters",
+		nil,
+		testFields,
+	); err != nil {
+		t.Fatalf(err.Error())
+	}
 
-// 	if err != nil {
-// 		t.Errorf("apply filter err: %s", err)
-// 	}
+	if len(r) != 1 {
+		t.Fatalf("Should have one replacement variable: got %d\n", len(r))
+	}
+}
 
-// 	t.Errorf("replacement1: %s\n", replacements)
-// 	t.Errorf("count query: %s\n", countQuery)
+func TestDecodeGroups(t *testing.T) {
+	var groups []Group
+	var err error
 
-// 	replacements2, err = ApplyAll(mockFormRequest, &countQueryWithArea, false, false, sqlx.DOLLAR, []interface{}{"1"})
+	if groups, err = DecodeGroups(testMockRequest, "groups"); err != nil {
+		t.Fatalf(err.Error())
+	}
 
-// 	if err != nil {
-// 		t.Errorf("apply filter err: %s", err)
-// 	}
+	if len(groups) != 1 {
+		t.Fatalf("Should have one replacement variable\n")
+	}
+}
 
-// 	t.Errorf("replacement2", replacements2)
-// 	t.Errorf("count queryWithArea: %s\n", countQueryWithArea)
-// }
+func TestGetGroupReplacements(t *testing.T) {
+	//var r []interface{}
+	var err error
+	q := testQuery
+	f := testQuery
+	f +=
+		`
+	group by
+		foo.bar
+	`
 
-// func TestParseWhereQuery(t *testing.T) {
-// 	fromClause := " wherehouse"
-// 	result := parseWhereQuery(fromClause, 0)
+	if _, err = GetGroupReplacements(testMockRequest, &q, "groups", nil, testFields); err != nil {
+		t.Fatalf(err.Error())
+	}
 
-// 	if result != " where " {
-// 		t.Errorf("should of got where: got %s", result)
-// 	}
-// }
+	if val := strings.Contains(q, "group by"); !val {
+		t.Fatalf("Query should contain 'group by' clause\n  query: %s", q)
+	}
+
+	if _, err = GetGroupReplacements(testMockRequest, &f, "groups", nil, testFields); err != nil {
+		t.Fatalf(err.Error())
+	}
+
+	allStrings := groupExp.FindAllString(f, -1)
+
+	if len(allStrings) != 1 {
+		t.Fatalf("Should not have added 'group by' to query\n  new query: %s\n", f)
+	}
+}
+
+func TestDecodeSorts(t *testing.T) {
+	var sorts []Sort
+	var err error
+
+	if sorts, err = DecodeSorts(testMockRequest, "sorts"); err != nil {
+		t.Fatalf(err.Error())
+	}
+
+	if len(sorts) != 1 {
+		t.Fatalf("Should have one replacement variable\n")
+	}
+
+	if sorts[0].Field != "foo.number" || sorts[0].Dir != "desc" {
+		t.Fatalf("sort not properly decoded\n")
+	}
+}
+
+func TestGetSortReplacements(t *testing.T) {
+	//var r []interface{}
+	var err error
+	q := testQuery
+	f := testQuery
+	f +=
+		`
+	sort by
+		foo.bar desc
+	`
+
+	if _, err = GetSortReplacements(testMockRequest, &q, "sorts", nil, testFields); err != nil {
+		t.Fatalf(err.Error())
+	}
+
+	if val := strings.Contains(q, "order by"); !val {
+		t.Fatalf("Query should contain 'order by' clause\n  query: %s", q)
+	}
+
+	if _, err = GetSortReplacements(testMockRequest, &f, "sorts", nil, testFields); err != nil {
+		t.Fatalf(err.Error())
+	}
+
+	allStrings := sortExp.FindAllString(f, -1)
+
+	if len(allStrings) != 1 {
+		t.Fatalf("Should not have added 'order by' to query\n  new query: %s\n", f)
+	}
+}
+
+func TestGetQueriedResults(t *testing.T) {
+	var err error
+
+	db := &MockQuerier{
+		getQuery: func(q string, args ...interface{}) (httputil.Rower, error) {
+			return &MockRower{}, nil
+		},
+	}
+	q :=
+		`
+	select
+		min(foo.id) as id,
+	from
+		foo
+	`
+
+	s := sqlx.DOLLAR
+
+	if _, err = GetPreQueryResults(
+		&q,
+		nil,
+		testFields,
+		testMockRequest,
+		db,
+		ParamConfig{},
+		QueryConfig{
+			SQLBindVar: &s,
+			PrependGroupFields: []Group{
+				{
+					Field: "foo.number",
+				},
+			},
+			// PrependSortFields: []Sort{
+			// 	{
+			// 		Field: "foo.dateExpired",
+			// 		Dir:   "asc",
+			// 	},
+			// },
+		},
+	); err != nil {
+		t.Fatalf(err.Error())
+	}
+
+	t.Fatalf("query: %s\n", q)
+}
+
+func TestGetLimitWithOffsetReplacements(t *testing.T) {
+	var err error
+
+	q :=
+		`
+	select
+		foo.*
+	from
+		foo.*
+	where
+		foo.id = $1
+	`
+	_, err = GetLimitWithOffsetReplacements(
+		testMockRequest,
+		&q,
+		"take",
+		"skip",
+		10,
+	)
+
+	if err != nil {
+		t.Fatalf(err.Error())
+	}
+
+	_, err = GetLimitWithOffsetReplacements(
+		testMockRequest,
+		&q,
+		"invalid",
+		"skip",
+		10,
+	)
+
+	if err == nil {
+		t.Fatalf("Should be error")
+	}
+	err = nil
+}

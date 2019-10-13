@@ -1,6 +1,7 @@
 package queryutil
 
 import (
+	"database/sql"
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
@@ -30,41 +31,318 @@ const (
 	Select = "select "
 )
 
+// Aggregate Types
+const (
+	AggregateCount = iota + 1
+	AggregateSum
+	AggregateAverage
+	AggregateMin
+	AggregateMax
+)
+
 var (
 	ErrInvalidSort  = errors.New("invalid sort")
 	ErrInvalidArray = errors.New("invalid array for field")
 	ErrInvalidValue = errors.New("invalid field value")
 )
 
-type FilterError struct {
-	field string
-	value interface{}
-}
-
-func (f *FilterError) Error() string {
-	if f.field != "" {
-		return fmt.Sprintf("invalid filter: '%s'", f.field)
-	}
-	if f.value != nil {
-		return fmt.Sprintf("invalid value '%v' for filter '%s'", f.value, f.field)
-	}
-
-	return ""
-}
-
-func (f *FilterError) setInvalidFilterError(field string) {
-	f.field = field
-}
-
-func (f *FilterError) setInvalidValueError(field string, value interface{}) {
-	f.field = field
-	f.value = value
-}
+////////////////////////////////////////////////////////////
+// MISC
+////////////////////////////////////////////////////////////
 
 // FormRequest is used to get form values from url string
 // Will mostly come from http.Request
 type FormRequest interface {
 	FormValue(string) string
+}
+
+////////////////////////////////////////////////////////////
+// CUSTOM ERRORS
+////////////////////////////////////////////////////////////
+
+type FilterError struct {
+	invalidOperation bool
+	invalidFilter    bool
+	invalidValue     bool
+
+	field string
+	value interface{}
+}
+
+func (f *FilterError) Error() string {
+	if f.invalidFilter {
+		return fmt.Sprintf("invalid filter field: '%s'", f.field)
+	}
+	if f.invalidValue {
+		return fmt.Sprintf("invalid value '%v' for filter '%s'", f.value, f.field)
+	}
+	if f.invalidOperation {
+		return fmt.Sprintf("invalid filter operation for field: '%s'", f.field)
+	}
+
+	return ""
+}
+
+func (f *FilterError) isFilterError() bool {
+	return f.invalidFilter
+}
+
+func (f *FilterError) isValueError() bool {
+	return f.invalidValue
+}
+
+func (f *FilterError) isOperationError() bool {
+	return f.invalidOperation
+}
+
+func (f *FilterError) setInvalidFilterError(field string) {
+	f.field = field
+	f.invalidFilter = true
+}
+
+func (f *FilterError) setInvalidValueError(field string, value interface{}) {
+	f.field = field
+	f.value = value
+	f.invalidValue = true
+}
+
+func (f *FilterError) setInvalidOperationError(field string) {
+	f.field = field
+	f.invalidOperation = true
+}
+
+type SortError struct {
+	invalidOperation bool
+	invalidSort      bool
+	invalidDir       bool
+
+	field string
+	value string
+}
+
+func (s *SortError) Error() string {
+	if s.invalidSort {
+		return fmt.Sprintf("invalid sort field: '%s'", s.field)
+	}
+	if s.invalidDir {
+		return fmt.Sprintf("invalid sort dir '%s' for field '%s'", s.value, s.field)
+	}
+
+	return ""
+}
+
+func (s *SortError) isSortError() bool {
+	return s.invalidSort
+}
+
+func (s *SortError) isDirError() bool {
+	return s.invalidDir
+}
+
+func (s *SortError) isOperationError() bool {
+	return s.invalidOperation
+}
+
+func (s *SortError) setInvalidSortError(field string) {
+	s.field = field
+	s.invalidSort = true
+}
+
+func (s *SortError) setInvalidDirError(field, dir string) {
+	s.field = field
+	s.value = dir
+	s.invalidDir = true
+}
+
+func (f *SortError) setInvalidOperationError(field string) {
+	f.field = field
+	f.invalidOperation = true
+}
+
+type GroupError struct {
+	invalidField bool
+
+	field string
+}
+
+func (s *GroupError) Error() string {
+	if s.invalidField {
+		return fmt.Sprintf("invalid group field: '%s'", s.field)
+	}
+
+	return ""
+}
+
+func (s *GroupError) isGroupError() bool {
+	return s.invalidField
+}
+
+func (s *GroupError) setInvalidGroupError(field string) {
+	s.field = field
+	s.invalidField = true
+}
+
+type SliceError struct {
+	invalidSlice bool
+
+	fieldType string
+	field     string
+}
+
+func (s *SliceError) Error() string {
+	if s.invalidSlice {
+		return fmt.Sprintf("invalid type (%s) within array for field: '%s'", s.fieldType, s.field)
+	}
+
+	return ""
+}
+
+func (s *SliceError) isSliceError() bool {
+	return s.invalidSlice
+}
+
+func (s *SliceError) setInvalidSliceError(field, fieldType string) {
+	s.field = field
+	s.fieldType = fieldType
+	s.invalidSlice = true
+}
+
+////////////////////////////////////////////////////////////
+// CONFIG STRUCTS
+////////////////////////////////////////////////////////////
+
+type filterResult struct {
+	Replacements []interface{}
+	Filters      []Filter
+}
+
+type sortResult struct {
+	Replacements []interface{}
+	Sorts        []Sort
+}
+
+type groupResult struct {
+	Replacements []interface{}
+	Groups       []Group
+}
+
+type resultReplacements struct {
+	Filters      []Filter
+	Sorts        []Sort
+	Groups       []Group
+	Replacements []interface{}
+}
+
+// OperationConfig is used in conjunction with FieldConfig{}
+// to determine if the field associated can perform certain
+// sql actions
+type OperationConfig struct {
+	// CanFilterBy determines whether field can have filters applied
+	CanFilterBy bool
+
+	// CanSortBy determines whether field can be sorted
+	CanSortBy bool
+
+	// CanGroupBy determines whether field can be grouped
+	CanGroupBy bool
+}
+
+// FieldConfig is meant to be a per database field config
+// to determine if a user can perform a certain sql action
+// and if user tries to perform action not allowed, throw error
+type FieldConfig struct {
+	// DBField should be the name of the database field
+	// to apply configurations to
+	DBField string
+
+	// OperationConf is config to set to determine which sql
+	// operations can be performed on DBField
+	OperationConf OperationConfig
+}
+
+// ParamConfig is for extracting expected query params from url
+// to be passed to the server
+type ParamConfig struct {
+	// Filter is for query param that will be applied
+	// to "where" clause of query
+	Filter *string
+
+	// Sort is for query param that will be applied
+	// to "order by" clause of query
+	Sort *string
+
+	// Take is for query param that will be applied
+	// to "limit" clause of query
+	Take *string
+
+	// Skip is for query param that will be applied
+	// to "offset" clause of query
+	Skip *string
+
+	// Group is for query param that will be applied
+	// to "group by" clause of query
+	Group *string
+}
+
+// type FilterConfig struct {
+// 	PrependFilterFields []string
+// 	PrependArgs         []interface{}
+// }
+
+// QueryConfig is config for how the overall execution of the query
+// is supposed to be performed
+type QueryConfig struct {
+	// SQLBindVar is used to determines what query placeholder parameters
+	// will be converted to depending on what database being used
+	// This is based off of the sqlx library
+	SQLBindVar *int
+
+	// TakeLimit is used to set max limit on number of
+	// records that are returned from query
+	TakeLimit *int
+
+	// PrependFilterFields prepends filters to query before
+	// ones passed by url query params
+	PrependFilterFields []Filter
+
+	// PrependGroupFields prepends groups to query before
+	// ones passed by url query params
+	PrependGroupFields []Group
+
+	// PrependSortFields prepends sorts to query before
+	// ones passed by url query params
+	PrependSortFields []Sort
+
+	// ExcludeFilters determines whether to exclude applying
+	// filters from url query params
+	// The PrependFilterFields property is NOT effected by this
+	ExcludeFilters bool
+
+	// ExcludeGroups determines whether to exclude applying
+	// groups from url query params
+	// The PrependGroupFields property is NOT effected by this
+	ExcludeGroups bool
+
+	// ExcludeSorts determines whether to exclude applying
+	// sorts from url query params
+	// The PrependSortFields property is NOT effected by this
+	ExcludeSorts bool
+
+	// ExcludeLimitWithOffset determines whether to exclude applying
+	// limit and offset from url query params
+	ExcludeLimitWithOffset bool
+
+	// DisableGroupMod is used to determine if a user wants to disable
+	// a query from automically being modified to accommodate a
+	// group by with order by without the client having to explictly send
+	// group by parameters along with order by
+	//
+	// In sql, if you have a group by and order by, the order by field(s)
+	// also have to appear in group by
+	// The GetPreQueryResults() function and functions that utilize it will
+	// automatically add the order by fields to the group by clause if they are
+	// needed unless DisableGroupMod is set true
+	DisableGroupMod bool
 }
 
 type ApplyConfig struct {
@@ -74,6 +352,10 @@ type ApplyConfig struct {
 	ExecuteCountQuery bool
 	ExclusionFields   []string
 }
+
+////////////////////////////////////////////////////////////
+// QUERY STRUCTS
+////////////////////////////////////////////////////////////
 
 // Filter is the filter config struct for server side filtering
 type Filter struct {
@@ -87,6 +369,1350 @@ type Sort struct {
 	Dir   string `json:"dir"`
 	Field string `json:"field"`
 }
+
+// Aggregate is config struct to be used in conjunction with Group
+// type Aggregate struct {
+// 	Field     string
+// 	Aggregate int
+// }
+
+// Group is the group config struct for server side grouping
+type Group struct {
+	// Dir        string       `json:"dir"`
+	Field string `json:"field"`
+	// Aggregates []*Aggregate `json:"aggregates"`
+}
+
+////////////////////////////////////////////////////////
+// NEW
+////////////////////////////////////////////////////////
+
+func getResults(
+	query *string,
+	db httputil.Querier,
+	queryConf QueryConfig,
+	prependVars []interface{},
+	filterReplacements []interface{},
+	limitOffsetReplacements []interface{},
+) ([]interface{}, error) {
+	var replacements []interface{}
+	var err error
+
+	totalReplacements := len(filterReplacements)
+
+	if prependVars != nil {
+		totalReplacements += len(prependVars)
+	}
+
+	if limitOffsetReplacements != nil {
+		totalReplacements += len(limitOffsetReplacements)
+	}
+
+	replacements = make([]interface{}, 0, totalReplacements)
+
+	if prependVars != nil {
+		//fmt.Printf("prependVars: %v\n", prependVars)
+		for _, v := range prependVars {
+			replacements = append(replacements, v)
+		}
+	}
+
+	for _, v := range filterReplacements {
+		replacements = append(replacements, v)
+	}
+
+	if limitOffsetReplacements != nil {
+		for _, v := range limitOffsetReplacements {
+			replacements = append(replacements, v)
+		}
+	}
+
+	// fmt.Printf("query at this point: %s\n", *query)
+	// fmt.Printf("replacements overall: %v\n", replacements)
+
+	if *query, replacements, err = InQueryRebind(
+		*queryConf.SQLBindVar, *query, replacements...,
+	); err != nil {
+		return nil, errors.Wrap(err, "\n-------------------\n")
+	}
+
+	return replacements, nil
+}
+
+func getCountResults(
+	query *string,
+	db httputil.Querier,
+	queryConf QueryConfig,
+	prependVars []interface{},
+	filterReplacements []interface{},
+	limitOffsetReplacements []interface{},
+) (int, error) {
+	replacements, err := getResults(
+		query,
+		db,
+		queryConf,
+		prependVars,
+		filterReplacements,
+		limitOffsetReplacements,
+	)
+
+	if err != nil {
+		return 0, err
+	}
+
+	rower, err := db.Query(*query, replacements...)
+
+	if err != nil {
+		return 0, err
+	}
+
+	totalCount := 0
+
+	for rower.Next() {
+		var count int
+		err = rower.Scan(&count)
+
+		if err != nil {
+			if err == sql.ErrNoRows {
+				return 0, nil
+			}
+
+			return 0, err
+		}
+
+		totalCount += count
+	}
+
+	return totalCount, nil
+}
+
+func getReplacementResults(
+	query *string,
+	countQuery *string,
+	r FormRequest,
+	paramConf *ParamConfig,
+	queryConf *QueryConfig,
+	fields map[string]FieldConfig,
+) (*resultReplacements, error) {
+	var q *string
+	var filterReplacements []interface{}
+	var filters []Filter
+	var sorts []Sort
+	var groups []Group
+	var err error
+
+	f := "filters"
+	sk := "skip"
+	so := "sorts"
+	t := "take"
+	g := "groups"
+
+	sql := sqlx.QUESTION
+	limit := 100
+
+	if paramConf.Filter == nil {
+		paramConf.Filter = &f
+	}
+	if paramConf.Skip == nil {
+		paramConf.Skip = &sk
+	}
+	if paramConf.Sort == nil {
+		paramConf.Sort = &so
+	}
+	if paramConf.Take == nil {
+		paramConf.Take = &t
+	}
+	if paramConf.Group == nil {
+		paramConf.Group = &g
+	}
+
+	if queryConf.SQLBindVar == nil {
+		queryConf.SQLBindVar = &sql
+	}
+	if queryConf.TakeLimit == nil {
+		queryConf.TakeLimit = &limit
+	}
+
+	if query != nil {
+		q = query
+	} else {
+		q = countQuery
+	}
+
+	if filters, filterReplacements, err = GetFilterReplacements(
+		r,
+		q,
+		*paramConf.Filter,
+		*queryConf,
+		// queryConf.ExcludeFilters,
+		// queryConf.PrependFilterFields,
+		fields,
+	); err != nil {
+		return nil, errors.Wrap(err, "")
+	}
+
+	if groups, err = GetGroupReplacements(
+		r,
+		q,
+		*paramConf.Group,
+		*queryConf,
+		// queryConf.PrependGroupFields,
+		fields,
+	); err != nil {
+		return nil, errors.Wrap(err, "")
+	}
+
+	if query != nil {
+		if sorts, err = DecodeSorts(r, *paramConf.Sort); err != nil {
+			return nil, errors.Wrap(err, "")
+		}
+
+		if len(groups) > 0 && len(sorts) > 0 && !queryConf.DisableGroupMod {
+			groupFields := make([]string, 0)
+
+			for _, v := range sorts {
+				hasGroupInSort := false
+				conf, ok := fields[v.Field]
+
+				if ok {
+					if conf.OperationConf.CanSortBy {
+						for _, k := range groups {
+							if v.Field == k.Field {
+								hasGroupInSort = true
+							}
+						}
+
+						if !hasGroupInSort && len(sorts) > 0 {
+							groupFields = append(groupFields, fields[v.Field].DBField)
+						}
+					} else {
+						sortErr := &SortError{}
+						sortErr.setInvalidOperationError(v.Field)
+						return nil, sortErr
+					}
+				} else {
+					sortErr := &SortError{}
+					sortErr.setInvalidSortError(v.Field)
+					return nil, sortErr
+				}
+			}
+
+			for i, v := range groupFields {
+				if i == 0 {
+					*q += ","
+				}
+
+				*q += " " + v
+
+				if i != len(groupFields)-1 {
+					*q += ","
+				}
+			}
+
+		}
+
+		if sorts, err = GetSortReplacements(
+			r,
+			q,
+			*paramConf.Sort,
+			*queryConf,
+			fields,
+		); err != nil {
+			return nil, errors.Wrap(err, "")
+		}
+	}
+
+	return &resultReplacements{
+		Filters:      filters,
+		Groups:       groups,
+		Sorts:        sorts,
+		Replacements: filterReplacements,
+	}, nil
+}
+
+// func getReplacementResults(
+// 	query *string,
+// 	countQuery *string,
+// 	r FormRequest,
+// 	paramConf *ParamConfig,
+// 	queryConf *QueryConfig,
+// 	fields map[string]FieldConfig,
+// ) (*resultReplacements, error) {
+// 	var q *string
+// 	var filterReplacements []interface{}
+// 	var filters []Filter
+// 	var sorts []Sort
+// 	var groups []Group
+// 	var err error
+
+// 	f := "filters"
+// 	sk := "skip"
+// 	so := "sorts"
+// 	t := "take"
+// 	g := "groups"
+
+// 	sql := sqlx.QUESTION
+// 	limit := 100
+
+// 	if paramConf.Filter == nil {
+// 		paramConf.Filter = &f
+// 	}
+// 	if paramConf.Skip == nil {
+// 		paramConf.Skip = &sk
+// 	}
+// 	if paramConf.Sort == nil {
+// 		paramConf.Sort = &so
+// 	}
+// 	if paramConf.Take == nil {
+// 		paramConf.Take = &t
+// 	}
+// 	if paramConf.Group == nil {
+// 		paramConf.Group = &g
+// 	}
+
+// 	if queryConf.SQLBindVar == nil {
+// 		queryConf.SQLBindVar = &sql
+// 	}
+// 	if queryConf.TakeLimit == nil {
+// 		queryConf.TakeLimit = &limit
+// 	}
+
+// 	if query != nil{
+// 		q = query
+// 	} else{
+// 		q = countQuery
+// 	}
+
+// 	if filters, filterReplacements, err = GetFilterReplacements(
+// 		r,
+// 		q,
+// 		*paramConf.Filter,
+// 		*queryConf,
+// 		// queryConf.ExcludeFilters,
+// 		// queryConf.PrependFilterFields,
+// 		fields,
+// 	); err != nil {
+// 		return nil, errors.Wrap(err, "")
+// 	}
+
+// 	if groups, err = GetGroupReplacements(
+// 		r,
+// 		q,
+// 		*paramConf.Group,
+// 		*queryConf,
+// 		// queryConf.PrependGroupFields,
+// 		fields,
+// 	); err != nil {
+// 		return nil, errors.Wrap(err, "")
+// 	}
+
+// 	if query != nil {
+// 		if sorts, err = DecodeSorts(r, *paramConf.Sort); err != nil {
+// 			return nil, errors.Wrap(err, "")
+// 		}
+
+// 		if len(groups) > 0 && len(sorts) > 0 && !queryConf.DisableGroupMod {
+// 			groupFields := make([]string, 0)
+
+// 			for _, v := range sorts {
+// 				hasGroupInSort := false
+// 				conf, ok := fields[v.Field]
+
+// 				if ok {
+// 					if conf.OperationConf.CanSortBy {
+// 						for _, k := range groups {
+// 							if v.Field == k.Field {
+// 								hasGroupInSort = true
+// 							}
+// 						}
+
+// 						if !hasGroupInSort && len(sorts) > 0 {
+// 							groupFields = append(groupFields, fields[v.Field].DBField)
+// 						}
+// 					} else {
+// 						sortErr := &SortError{}
+// 						sortErr.setInvalidOperationError(v.Field)
+// 						return nil, sortErr
+// 					}
+// 				} else {
+// 					sortErr := &SortError{}
+// 					sortErr.setInvalidSortError(v.Field)
+// 					return nil, sortErr
+// 				}
+// 			}
+
+// 			for i, v := range groupFields {
+// 				if i == 0 {
+// 					*query += ","
+// 				}
+
+// 				*query += " " + v
+
+// 				if i != len(groupFields)-1 {
+// 					*query += ","
+// 				}
+// 			}
+
+// 		}
+
+// 		if sorts, err = GetSortReplacements(
+// 			r,
+// 			q,
+// 			*paramConf.Sort,
+// 			*queryConf,
+// 			fields,
+// 		); err != nil {
+// 			return nil, errors.Wrap(err, "")
+// 		}
+// 	}
+
+// 	return &resultReplacements{
+// 		Filters:      filters,
+// 		Groups:       groups,
+// 		Sorts:        sorts,
+// 		Replacements: filterReplacements,
+// 	}, nil
+// }
+
+func GetQueriedAndCountResults(
+	query *string,
+	countQuery *string,
+	prependVars []interface{},
+	fields map[string]FieldConfig,
+	r FormRequest,
+	db httputil.Querier,
+	paramConf ParamConfig,
+	queryConf QueryConfig,
+) (httputil.Rower, int, error) {
+	rower, err := GetQueriedResults(
+		query,
+		prependVars,
+		fields,
+		r,
+		db,
+		paramConf,
+		queryConf,
+	)
+
+	if err != nil {
+		return nil, 0, errors.Wrap(err, "")
+	}
+
+	//fmt.Printf("query: %s\n", *query)
+
+	count, err := GetCountResults(
+		countQuery,
+		prependVars,
+		fields,
+		r,
+		db,
+		paramConf,
+		queryConf,
+	)
+
+	//fmt.Printf("count query: %s\n", *countQuery)
+
+	if err != nil {
+		return nil, 0, errors.Wrap(err, "")
+	}
+
+	return rower, count, nil
+}
+
+func GetCountResults(
+	countQuery *string,
+	prependVars []interface{},
+	fields map[string]FieldConfig,
+	r FormRequest,
+	db httputil.Querier,
+	paramConf ParamConfig,
+	queryConf QueryConfig,
+) (int, error) {
+	//var replacements []interface{}
+	var results *resultReplacements
+	var err error
+
+	if results, err = getReplacementResults(
+		nil,
+		countQuery,
+		r,
+		&paramConf,
+		&queryConf,
+		fields,
+	); err != nil {
+		return 0, errors.Wrap(err, "")
+	}
+
+	return getCountResults(
+		countQuery,
+		db,
+		queryConf,
+		prependVars,
+		results.Replacements,
+		nil,
+	)
+}
+
+func GetPreQueryResults(
+	query *string,
+	prependVars []interface{},
+	fields map[string]FieldConfig,
+	r FormRequest,
+	db httputil.Querier,
+	paramConf ParamConfig,
+	queryConf QueryConfig,
+) ([]interface{}, error) {
+	var results *resultReplacements
+	//var replacements []interface{}
+	var limitOffsetReplacements []interface{}
+	var err error
+
+	if results, err = getReplacementResults(
+		query,
+		nil,
+		r,
+		&paramConf,
+		&queryConf,
+		fields,
+	); err != nil {
+		return nil, errors.Wrap(err, "")
+	}
+
+	if !queryConf.ExcludeLimitWithOffset {
+		if limitOffsetReplacements, err = GetLimitWithOffsetReplacements(
+			r,
+			query,
+			*paramConf.Take,
+			*paramConf.Skip,
+			*queryConf.TakeLimit,
+		); err != nil {
+			return nil, errors.Wrap(err, "")
+		}
+	}
+
+	replacements, err := getResults(
+		query,
+		db,
+		queryConf,
+		prependVars,
+		results.Replacements,
+		limitOffsetReplacements,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return replacements, nil
+}
+
+func GetQueriedResults(
+	query *string,
+	prependVars []interface{},
+	fields map[string]FieldConfig,
+	r FormRequest,
+	db httputil.Querier,
+	paramConf ParamConfig,
+	queryConf QueryConfig,
+) (httputil.Rower, error) {
+	replacements, err := GetPreQueryResults(
+		query,
+		prependVars,
+		fields,
+		r,
+		db,
+		paramConf,
+		queryConf,
+	)
+
+	if err != nil {
+		return nil, errors.Wrap(err, "")
+	}
+
+	return db.Query(*query, replacements...)
+}
+
+////////////////////////////////////////////////////////////
+// GET REPLACEMENT FUNCTIONS
+////////////////////////////////////////////////////////////
+
+// GetFilterReplacements will decode passed paramName paramter and decode it from FormRequest into []Filter
+// It will then apply these filters to passed query and return extracted values
+// Applies "where" or "and" to query string depending on whether the query string already contains a where clause
+// Throws FilterError{} error type if error occurs
+func GetFilterReplacements(
+	r FormRequest,
+	query *string,
+	paramName string,
+	queryConf QueryConfig,
+	// excludeFilters bool,
+	// prependFilters []Filter,
+	fields map[string]FieldConfig,
+) ([]Filter, []interface{}, error) {
+	var err error
+	var allFilters, filters []Filter
+	var replacements, prependReplacements, allReplacements []interface{}
+
+	filterExp := regexp.MustCompile(`(?i)(\n|\t|\s)where(\n|\t|\s)`)
+
+	if queryConf.PrependFilterFields != nil {
+		if len(queryConf.PrependFilterFields) > 0 {
+			if f := filterExp.FindString(*query); f == "" {
+				*query += " where"
+			} else {
+				*query += " and"
+			}
+
+			if prependReplacements, err = ReplaceFilterFields(
+				query,
+				queryConf.PrependFilterFields,
+				fields,
+			); err != nil {
+				return nil, nil, errors.Wrap(err, "")
+			}
+		}
+	} else {
+		queryConf.PrependFilterFields = make([]Filter, 0)
+	}
+
+	if !queryConf.ExcludeFilters {
+		if filters, err = DecodeFilters(r, paramName); err != nil {
+			return nil, nil, errors.Wrap(err, "")
+		}
+
+		if len(filters) > 0 {
+			if f := filterExp.FindString(*query); f == "" {
+				*query += " where"
+			} else {
+				*query += " and"
+			}
+
+			if replacements, err = ReplaceFilterFields(query, filters, fields); err != nil {
+				return nil, nil, errors.Wrap(err, "")
+			}
+		}
+	} else {
+		filters = make([]Filter, 0)
+	}
+
+	allFilters = make([]Filter, 0, len(queryConf.PrependFilterFields)+len(filters))
+	allReplacements = make([]interface{}, 0, len(prependReplacements)+len(replacements))
+
+	for _, v := range queryConf.PrependFilterFields {
+		allFilters = append(allFilters, v)
+	}
+	for _, v := range filters {
+		allFilters = append(allFilters, v)
+	}
+
+	for _, v := range prependReplacements {
+		allReplacements = append(allReplacements, v)
+	}
+	for _, v := range replacements {
+		allReplacements = append(allReplacements, v)
+	}
+
+	return allFilters, allReplacements, nil
+}
+
+// // GetFilterReplacements will decode passed paramName paramter and decode it from FormRequest into []*Filter
+// // It will then apply these filters to passed query and return extracted values
+// // Applies "where" or "and" to query string depending on whether the query string already contains a where clause
+// // Throws FilterError{} error type if error occurs
+// func GetFilterReplacements(r FormRequest, query *string, paramName string, fields map[string]FieldConfig) ([]*Filter, []interface{}, error) {
+// 	var err error
+// 	var filters []*Filter
+// 	var replacements []interface{}
+
+// 	if filters, err = DecodeFilters(r, paramName); err != nil {
+// 		return nil, nil, err
+// 	}
+
+// 	if len(filters) > 0 {
+// 		var selectCount, whereCount int
+
+// 		// Regular expression for checking whether the given query
+// 		// already has a where statement
+// 		selectExp := regexp.MustCompile(`(?i)(\n|\t|\s|\A)select(\n|\t|\s)`)
+// 		whereExp := regexp.MustCompile(`(?i)(\n|\t|\s)where(\n|\t|\s)`)
+
+// 		selectSlice := selectExp.FindAllStringIndex(*query, -1)
+// 		whereSlice := whereExp.FindAllStringIndex(*query, -1)
+
+// 		if selectSlice != nil {
+// 			selectCount = len(selectSlice)
+// 		}
+// 		if whereSlice != nil {
+// 			whereCount = len(whereSlice)
+// 		}
+
+// 		if whereCount < selectCount {
+// 			*query += " where "
+// 		} else {
+// 			*query += " and "
+// 		}
+
+// 		if replacements, err = ReplaceFilterFields(query, filters, fields); err != nil {
+// 			return nil, nil, err
+// 		}
+// 	} else {
+// 		replacements = make([]interface{}, 0)
+// 	}
+
+// 	return nil, replacements, nil
+// }
+
+// GetSortReplacements will decode passed paramName paramter and decode it from FormRequest into []*Sort
+// It will then apply these sorts to passed query and return extracted values
+// Will apply "order by" text to query if not found
+// Throws SortError{} error type if error occurs
+func GetSortReplacements(
+	r FormRequest,
+	query *string,
+	paramName string,
+	queryConf QueryConfig,
+	// excludeSorts bool,
+	// prependSorts []Sort,
+	fields map[string]FieldConfig,
+) ([]Sort, error) {
+	var allSorts, sortSlice []Sort
+	//var replacements, prependReplacements []interface{}
+	var err error
+
+	orderExp := regexp.MustCompile(`(?i)(\n|\t|\s)order(\n|\t|\s)`)
+
+	if queryConf.PrependSortFields != nil {
+		if len(queryConf.PrependSortFields) > 0 {
+			if s := orderExp.FindString(*query); s == "" {
+				*query += " order by "
+			} else {
+				*query += ","
+			}
+
+			if err = ReplaceSortFields(
+				query,
+				queryConf.PrependSortFields,
+				fields,
+			); err != nil {
+				return nil, errors.Wrap(err, "")
+			}
+		}
+	} else {
+		queryConf.PrependSortFields = make([]Sort, 0)
+	}
+
+	if !queryConf.ExcludeSorts {
+		if sortSlice, err = DecodeSorts(r, paramName); err != nil {
+			return nil, errors.Wrap(err, "")
+		}
+
+		if len(sortSlice) > 0 {
+			if s := orderExp.FindString(*query); s == "" {
+				*query += " order by "
+			} else {
+				*query += ","
+			}
+
+			if err = ReplaceSortFields(query, sortSlice, fields); err != nil {
+				return nil, errors.Wrap(err, "")
+			}
+		}
+	}
+
+	allSorts = make([]Sort, 0, len(queryConf.PrependSortFields)+len(sortSlice))
+	//allReplacements = make([]interface{}, 0, len(prependReplacements)+len(replacements))
+
+	for _, v := range queryConf.PrependSortFields {
+		allSorts = append(allSorts, v)
+	}
+	for _, v := range sortSlice {
+		allSorts = append(allSorts, v)
+	}
+
+	// for _, v := range prependReplacements {
+	// 	allReplacements = append(allReplacements, v)
+	// }
+	// for _, v := range replacements {
+	// 	allReplacements = append(allReplacements, v)
+	// }
+
+	return allSorts, nil
+}
+
+// // GetSortReplacements will decode passed paramName paramter and decode it from FormRequest into []*Sort
+// // It will then apply these sorts to passed query and return extracted values
+// // Will apply "order by" text to query if not found
+// // Throws SortError{} error type if error occurs
+// func GetSortReplacements(
+// 	r FormRequest,
+// 	query *string,
+// 	paramName string,
+// 	prependSorts []*Sort,
+// 	fields map[string]FieldConfig,
+// ) ([]*Sort, []interface{}, error) {
+// 	var sortSlice []*Sort
+// 	var replacements []interface{}
+// 	var err error
+
+// 	orderExp := regexp.MustCompile(`(?i)(\n|\t|\s)order(\n|\t|\s)`)
+
+// 	// if s := orderExp.FindString(*query); s == "" {
+// 	// 	*query += " order by"
+// 	// } else {
+// 	// 	*query = ","
+// 	// }
+
+// 	// for _, v := range prependSorts {
+
+// 	// }
+
+// 	if sortSlice, err = DecodeSorts(r, paramName); err != nil {
+// 		return nil, nil, err
+// 	}
+
+// 	if len(sortSlice) > 0 {
+// 		if s := orderExp.FindString(*query); s == "" {
+// 			*query += " order by"
+// 		} else {
+// 			*query = ","
+// 		}
+
+// 		if replacements, err = ReplaceSortFields(query, sortSlice, fields); err != nil {
+// 			return nil, nil, err
+// 		}
+// 	} else {
+// 		replacements = make([]interface{}, 0)
+// 	}
+
+// 	return nil, replacements, nil
+// }
+
+// GetGroupReplacements will decode passed paramName paramter and decode it from FormRequest into []*Group
+// It will then apply these groups to passed query and return extracted values
+// Will apply "group by" text to query if not found
+// Throws GroupError{} error type if error occurs
+func GetGroupReplacements(
+	r FormRequest,
+	query *string,
+	paramName string,
+	queryConf QueryConfig,
+	// excludeGroups bool,
+	// prependGroups []Group,
+	fields map[string]FieldConfig,
+) ([]Group, error) {
+	var allGroups, groupSlice []Group
+	//var replacements, prependReplacements []interface{}
+	var err error
+
+	groupExp := regexp.MustCompile(`(?i)(\n|\t|\s)group(\n|\t|\s)`)
+
+	if queryConf.PrependGroupFields != nil {
+		if len(queryConf.PrependGroupFields) > 0 {
+			if g := groupExp.FindString(*query); g == "" {
+				*query += " group by "
+			} else {
+				*query += ","
+			}
+
+			if err = ReplaceGroupFields(
+				query,
+				queryConf.PrependGroupFields,
+				fields,
+			); err != nil {
+				return nil, errors.Wrap(err, "")
+			}
+		}
+	} else {
+		queryConf.PrependGroupFields = make([]Group, 0)
+	}
+
+	if !queryConf.ExcludeGroups {
+		if groupSlice, err = DecodeGroups(r, paramName); err != nil {
+			return nil, errors.Wrap(err, "")
+		}
+
+		if len(groupSlice) > 0 {
+			if g := groupExp.FindString(*query); g == "" {
+				*query += " group by "
+			} else {
+				*query += ","
+			}
+
+			if err = ReplaceGroupFields(query, groupSlice, fields); err != nil {
+				return nil, errors.Wrap(err, "")
+			}
+		}
+	} else {
+		groupSlice = make([]Group, 0)
+	}
+
+	allGroups = make([]Group, 0, len(queryConf.PrependGroupFields)+len(groupSlice))
+	//allReplacements = make([]interface{}, 0, len(prependReplacements)+len(replacements))
+
+	for _, v := range queryConf.PrependGroupFields {
+		allGroups = append(allGroups, v)
+	}
+	for _, v := range groupSlice {
+		allGroups = append(allGroups, v)
+	}
+
+	// for _, v := range prependReplacements {
+	// 	allReplacements = append(allReplacements, v)
+	// }
+	// for _, v := range replacements {
+	// 	allReplacements = append(allReplacements, v)
+	// }
+
+	return allGroups, nil
+}
+
+// // GetGroupReplacements will decode passed paramName paramter and decode it from FormRequest into []*Group
+// // It will then apply these groups to passed query and return extracted values
+// // Will apply "group by" text to query if not found
+// // Throws GroupError{} error type if error occurs
+// func GetGroupReplacements(
+// 	r FormRequest,
+// 	query *string,
+// 	paramName string,
+// 	prependGroups []*Group,
+// 	fields map[string]FieldConfig,
+// ) ([]*Group, []interface{}, error) {
+// 	var groupSlice []*Group
+// 	var replacements []interface{}
+// 	var err error
+
+// 	if groupSlice, err = DecodeGroups(r, paramName); err != nil {
+// 		return nil, nil, err
+// 	}
+
+// 	if len(groupSlice) > 0 {
+// 		groupExp := regexp.MustCompile(`(?i)(\n|\t|\s)group(\n|\t|\s)`)
+
+// 		if s := groupExp.FindString(*query); s == "" {
+// 			*query += " group by"
+// 		} else {
+// 			*query += ","
+// 		}
+
+// 		if replacements, err = ReplaceGroupFields(query, groupSlice, fields); err != nil {
+// 			return nil, nil, err
+// 		}
+// 	} else {
+// 		replacements = make([]interface{}, 0)
+// 	}
+
+// 	return nil, replacements, nil
+// }
+
+func GetLimitWithOffsetReplacements(
+	r FormRequest,
+	query *string,
+	takeParam,
+	skipParam string,
+	takeLimit int,
+) ([]interface{}, error) {
+	var err error
+	var takeInt, skipInt int
+
+	take := r.FormValue(takeParam)
+	skip := r.FormValue(skipParam)
+
+	if take == "" {
+		takeInt = takeLimit
+	} else {
+		if takeInt, err = strconv.Atoi(take); err != nil {
+			return nil, errors.Wrap(err, "")
+		}
+
+		if takeInt > takeLimit {
+			takeInt = takeLimit
+		}
+	}
+
+	if skip == "" {
+		skipInt = 0
+	} else {
+		if skipInt, err = strconv.Atoi(skip); err != nil {
+			return nil, errors.Wrap(err, "")
+		}
+	}
+
+	replacements := []interface{}{takeInt, skipInt}
+	ApplyLimit(query)
+	return replacements, nil
+}
+
+////////////////////////////////////////////////////////////
+// DECODE FUNCTIONS
+////////////////////////////////////////////////////////////
+
+func decodeQueryParams(r FormRequest, paramName string, val interface{}) error {
+	formVal := r.FormValue(paramName)
+
+	if formVal != "" {
+		param, err := url.QueryUnescape(formVal)
+
+		if err != nil {
+			return err
+		}
+
+		err = json.Unmarshal([]byte(param), &val)
+
+		if err != nil {
+			return errors.Wrap(err, "")
+		}
+	}
+
+	return nil
+}
+
+// DecodeFilters will use passed paramName parameter to extract json encoded
+// filter from passed FormRequest and decode into Filter
+// If paramName is not found in FormRequest, error will be thrown
+// Will also throw error if can't properly decode
+func DecodeFilters(r FormRequest, paramName string) ([]Filter, error) {
+	var filterArray []Filter
+	var err error
+
+	if err = decodeQueryParams(r, paramName, &filterArray); err != nil {
+		return nil, errors.Wrap(err, "")
+	}
+
+	return filterArray, nil
+}
+
+// DecodeSorts will use passed paramName parameter to extract json encoded
+// sort from passed FormRequest and decode into Sort
+// If paramName is not found in FormRequest, error will be thrown
+// Will also throw error if can't properly decode
+func DecodeSorts(r FormRequest, paramName string) ([]Sort, error) {
+	var sortArray []Sort
+	var err error
+
+	if err = decodeQueryParams(r, paramName, &sortArray); err != nil {
+		return nil, errors.Wrap(err, "")
+	}
+
+	return sortArray, nil
+}
+
+func DecodeGroups(r FormRequest, paramName string) ([]Group, error) {
+	var groupSlice []Group
+	var err error
+
+	if err = decodeQueryParams(r, paramName, &groupSlice); err != nil {
+		return nil, err
+	}
+
+	return groupSlice, nil
+}
+
+////////////////////////////////////////////////////////////
+// REPLACE FUNCTIONS
+////////////////////////////////////////////////////////////
+
+// ReplaceFilterFields is used to replace query field names and values from slice of filters
+// along with verifying that they have right values and applying changes to query
+// This function does not apply "where" string for query so one must do it before
+// passing query
+func ReplaceFilterFields(query *string, filters []Filter, fields map[string]FieldConfig) ([]interface{}, error) {
+	var err error
+	replacements := make([]interface{}, 0, len(filters))
+
+	for i, v := range filters {
+		var r interface{}
+		containsField := false
+
+		// Check if current filter is within our fields map
+		// If it is, check that it is allowed to be filtered
+		// by and then check if given parameters are valid
+		// If valid, apply filter to query
+		// Else throw error
+		if conf, ok := fields[v.Field]; ok {
+			if !conf.OperationConf.CanFilterBy {
+				filterErr := &FilterError{}
+				filterErr.setInvalidFilterError(conf.DBField)
+				return nil, errors.Wrap(filterErr, "")
+			}
+
+			//replacements = append(replacements, conf.DBField)
+			containsField = true
+
+			if r, err = FilterCheck(v); err != nil {
+				return nil, errors.Wrap(err, "")
+			}
+
+			replacements = append(replacements, r)
+
+			applyAnd := true
+
+			if i == len(filters)-1 {
+				applyAnd = false
+			}
+
+			v.Field = conf.DBField
+			ApplyFilter(query, v, applyAnd)
+		}
+
+		if !containsField {
+			filterErr := &FilterError{}
+			filterErr.setInvalidFilterError(v.Field)
+			return nil, errors.Wrap(filterErr, "")
+		}
+	}
+
+	return replacements, nil
+}
+
+// ReplaceSortFields is used to replace query field names and values from slice of sorts
+// along with verifying that they have right values and applying changes to query
+// This function does not apply "order by" string for query so one must do it before
+// passing query
+func ReplaceSortFields(query *string, sorts []Sort, fields map[string]FieldConfig) error {
+	var err error
+	replacements := make([]interface{}, 0, len(sorts))
+
+	for i, v := range sorts {
+		containsField := false
+
+		// Check if current sort is within our fields map
+		// If it is, check that it is allowed to be sorted
+		// by and then check if given parameters are valid
+		// If valid, apply sort to query
+		// Else throw error
+		if conf, ok := fields[v.Field]; ok {
+			if !conf.OperationConf.CanSortBy {
+				sortErr := &SortError{}
+				sortErr.setInvalidSortError(v.Field)
+				return errors.Wrap(sortErr, "")
+			}
+
+			if err = SortCheck(v, replacements); err != nil {
+				return err
+			}
+
+			addComma := true
+
+			if i == len(sorts)-1 {
+				addComma = false
+			}
+
+			v.Field = conf.DBField
+			ApplySort(query, v, addComma)
+			containsField = true
+		}
+
+		if !containsField {
+			sortErr := &SortError{}
+			sortErr.setInvalidSortError(v.Field)
+			return errors.Wrap(sortErr, "")
+		}
+	}
+
+	return nil
+}
+
+func ReplaceGroupFields(query *string, groups []Group, fields map[string]FieldConfig) error {
+	//replacements := make([]interface{}, 0, len(groups))
+
+	for i, v := range groups {
+		containsField := false
+
+		// Check if current sort is within our fields map
+		// If it is, check that it is allowed to be grouped
+		// by and then check if given parameters are valid
+		// If valid, apply sort to query
+		// Else throw error
+		if conf, ok := fields[v.Field]; ok {
+			if !conf.OperationConf.CanGroupBy {
+				groupErr := &GroupError{}
+				groupErr.setInvalidGroupError(v.Field)
+				return errors.Wrap(groupErr, "")
+			}
+
+			addComma := true
+
+			if i == len(groups)-1 {
+				addComma = false
+			}
+
+			v.Field = conf.DBField
+			ApplyGroup(query, v, addComma)
+			containsField = true
+		}
+
+		if !containsField {
+			groupErr := &GroupError{}
+			groupErr.setInvalidGroupError(v.Field)
+			return errors.Wrap(groupErr, "")
+		}
+	}
+
+	return nil
+}
+
+////////////////////////////////////////////////////////////
+// APPLY FUNCTIONS
+////////////////////////////////////////////////////////////
+
+// ApplyFilter applies the filter passed to the query passed
+// The applyAnd paramter is used to determine if the query should have
+// an "and" added to the end
+func ApplyFilter(query *string, filter Filter, applyAnd bool) {
+	_, ok := filter.Value.([]interface{})
+
+	if ok {
+		*query += " " + filter.Field + " in (?)"
+	} else {
+		switch filter.Operator {
+		case "eq":
+			*query += " " + filter.Field + " = ?"
+		case "neq":
+			*query += " " + filter.Field + " != ?"
+		case "startswith":
+			*query += " " + filter.Field + " ilike ? || '%'"
+		case "endswith":
+			*query += " " + filter.Field + " ilike '%' || ?"
+		case "contains":
+			*query += " " + filter.Field + " ilike '%' || ? || '%'"
+		case "doesnotcontain":
+			*query += " " + filter.Field + " not ilike '%' || ? || '%'"
+		case "isnull":
+			*query += " " + filter.Field + " is null"
+		case "isnotnull":
+			*query += " " + filter.Field + " is not null"
+		case "isempty":
+			*query += " " + filter.Field + " = ''"
+		case "isnotempty":
+			*query += " " + filter.Field + " != ''"
+		case "lt":
+			*query += " " + filter.Field + " < ?"
+		case "lte":
+			*query += " " + filter.Field + " <= ?"
+		case "gt":
+			*query += " " + filter.Field + " > ?"
+		case "gte":
+			*query += " " + filter.Field + " >= ?"
+		}
+	}
+
+	// If there is more in filter slice, append "and"
+	if applyAnd {
+		*query += " and"
+	}
+}
+
+// ApplySort applies the sort passed to the query passed
+// The addComma paramter is used to determine if the query should have
+// ","(comma) appended to the query
+func ApplySort(query *string, sort Sort, addComma bool) {
+	*query += " " + sort.Field
+
+	if sort.Dir == "asc" {
+		*query += " asc"
+	} else {
+		*query += " desc"
+	}
+
+	if addComma {
+		*query += ","
+	}
+}
+
+func ApplyGroup(query *string, group Group, addComma bool) {
+	*query += " " + group.Field
+
+	if addComma {
+		*query += ","
+	}
+}
+
+////////////////////////////////////////////////////////////
+// CHECK FUNCTIONS
+////////////////////////////////////////////////////////////
+
+// SortCheck checks to make sure that the "dir" field either has value "asc" or "desc"
+// and if it doesn't, throw error
+// It also adds the field to the replacements parameter passed
+func SortCheck(s Sort, replacements []interface{}) error {
+	if s.Dir != "asc" && s.Dir != "desc" {
+		sortErr := &SortError{}
+		sortErr.setInvalidDirError(s.Field, s.Dir)
+		return sortErr
+	}
+
+	return nil
+
+	// replacements = append(replacements, s.Field)
+	// return nil
+}
+
+// FilterCheck checks to make sure that the values passed to each filter is valid
+// The types passed should be primitive types
+// It also adds the field to the replacements parameter passed
+func FilterCheck(f Filter) (interface{}, error) {
+	var r interface{}
+
+	validTypes := []string{"string", "float64", "int64"}
+	hasValidType := false
+
+	if f.Value != "" && f.Operator != "isnull" && f.Operator != "isnotnull" {
+		// First check if value sent is slice
+		list, ok := f.Value.([]interface{})
+
+		// If slice, then loop through and make sure all items in list
+		// are primitive type, else throw error
+		if ok {
+			for _, t := range list {
+				someType := reflect.TypeOf(t)
+
+				for _, v := range validTypes {
+					if someType.String() == v {
+						hasValidType = true
+						break
+					}
+				}
+
+				if !hasValidType {
+					sliceErr := &SliceError{}
+					sliceErr.setInvalidSliceError(f.Field, someType.String())
+					return nil, sliceErr
+				}
+			}
+
+			r = list
+		} else {
+			validTypes = append(validTypes, "bool")
+
+			if f.Value == nil {
+				filterErr := &FilterError{}
+				filterErr.setInvalidValueError(f.Field, f.Value)
+				return nil, filterErr
+			}
+
+			someType := reflect.TypeOf(f.Value)
+
+			for _, v := range validTypes {
+				if someType.String() == v {
+					hasValidType = true
+					break
+				}
+			}
+
+			if !hasValidType {
+				sliceErr := &SliceError{}
+				sliceErr.setInvalidSliceError(f.Field, someType.String())
+				return nil, sliceErr
+			}
+
+			r = f.Value
+		}
+	}
+
+	return r, nil
+}
+
+// --------------------------------------------------------------------------------
 
 /////////////////////////////////////////////
 // DECODE LOGIC
@@ -134,7 +1760,7 @@ func DecodeFilter(filterEncoding string) ([]*Filter, error) {
 // FILTER LOGIC
 /////////////////////////////////////////////
 
-func applyFilter(query *string, filters []*Filter) {
+func applyFilters(query *string, filters []*Filter) {
 	if len(filters) > 0 {
 		var selectCount int
 		var whereCount int
@@ -217,13 +1843,13 @@ func ApplyFilterV2(query *string, filters []*Filter, exclusionFields []string) {
 		}
 	}
 
-	applyFilter(query, filters)
+	applyFilters(query, filters)
 }
 
-// ApplyFilter takes a query string with a slice of Filter structs
+// ApplyFilters takes a query string with a slice of Filter structs
 // and applies where filtering to the query
-func ApplyFilter(query *string, filters []*Filter) {
-	applyFilter(query, filters)
+func ApplyFilters(query *string, filters []*Filter) {
+	applyFilters(query, filters)
 }
 
 // -------------------------------------------------------------------------------
@@ -279,7 +1905,7 @@ func whereFilter(
 		}
 
 		if exclusionFields == nil {
-			ApplyFilter(query, filters)
+			ApplyFilters(query, filters)
 		} else {
 			ApplyFilterV2(query, filters, exclusionFields)
 		}
@@ -308,7 +1934,7 @@ func whereFilter(
 // WhereFilter decodes all the given values from the passed FormRequest
 // and applies it to given query
 // This function simply applies other functions like
-// DecodeFilter, ApplyFilter
+// DecodeFilter, ApplyFilters
 // This function is meant to be used for aggregate queries that
 // need server side filtering
 //
@@ -342,7 +1968,7 @@ func WhereFilter(
 // WhereFilterV2 decodes all the given values from the passed FormRequest
 // and applies it to given query
 // This function simply applies other functions like
-// DecodeFilter, ApplyFilter
+// DecodeFilter, ApplyFilters
 // This function is meant to be used for aggregate queries that
 // need server side filtering
 // WhereFilterV2 adds exclusionFields parameter to original WhereFilter function
@@ -448,12 +2074,12 @@ func applyAll(
 
 		if applyConfig != nil {
 			if applyConfig.ExclusionFields == nil {
-				ApplyFilter(query, filters)
+				ApplyFilters(query, filters)
 			} else {
 				ApplyFilterV2(query, filters, applyConfig.ExclusionFields)
 			}
 		} else {
-			ApplyFilter(query, filters)
+			ApplyFilters(query, filters)
 		}
 
 		varReplacements = append(varReplacements, replacements...)
@@ -510,7 +2136,7 @@ func applyAll(
 }
 
 // ApplyAll is the main function that will be used for server side filtering
-// It applies most of the other functions written including DecodeFilter, ApplyFilter,
+// It applies most of the other functions written including DecodeFilter, ApplyFilters,
 // DecodeSort, ApplyOrdering and ApplyLimit
 //
 // r:
@@ -545,7 +2171,7 @@ func ApplyAll(
 }
 
 // ApplyAllV2 is the main function that will be used for server side filtering
-// It applies most of the other functions written including DecodeFilter, ApplyFilter,
+// It applies most of the other functions written including DecodeFilter, ApplyFilters,
 // DecodeSort, ApplyOrdering and ApplyLimit
 //
 // r:
@@ -957,7 +2583,8 @@ func SetRowerResults(
 }
 
 func HasFilterError(w http.ResponseWriter, err error) bool {
-	if _, ok := err.(*FilterError); ok {
+	switch err.(type) {
+	case *FilterError, *SortError, *GroupError:
 		w.WriteHeader(http.StatusNotAcceptable)
 		w.Write([]byte(err.Error()))
 		return true
@@ -1023,7 +2650,7 @@ func replaceFieldsV2(filters []*Filter, fieldNames map[string]string) ([]interfa
 			filters[i].Field = val
 			containsField = true
 
-			replacements, err = filterCheck(v, replacements)
+			replacements, err = filterCheckV1(v, replacements)
 
 			if err != nil {
 				return nil, err
@@ -1040,16 +2667,21 @@ func replaceFieldsV2(filters []*Filter, fieldNames map[string]string) ([]interfa
 	return replacements, nil
 }
 
-func filterCheck(f *Filter, replacements []interface{}) ([]interface{}, error) {
+func filterCheckV1(f *Filter, replacements []interface{}) ([]interface{}, error) {
 	if f.Value != "" && f.Operator != "isnull" && f.Operator != "isnotnull" {
+		// First check if value sent is slice
 		list, ok := f.Value.([]interface{})
 
+		// If slice, then loop through and make sure all items in list
+		// are primitive type, else throw error
 		if ok {
 			for _, t := range list {
 				someType := reflect.TypeOf(t)
 
 				if someType.String() != "string" && someType.String() != "float64" {
-					return nil, ErrInvalidArray
+					sliceErr := &SliceError{}
+					sliceErr.setInvalidSliceError(f.Field, someType.String())
+					return nil, sliceErr
 				}
 			}
 
