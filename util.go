@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -19,6 +21,15 @@ const (
 	ContenTypeJPG     = "image/jpeg"
 	ContentTypePNG    = "image/png"
 )
+
+var (
+	Logger = logrus.New()
+)
+
+func init() {
+	Logger.SetFormatter(&logrus.JSONFormatter{})
+	logrus.SetOutput(os.Stdout)
+}
 
 // CheckError simply prints given error in verbose to stdout
 func CheckError(err error, customMessage string) {

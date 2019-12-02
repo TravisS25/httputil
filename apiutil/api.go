@@ -28,17 +28,8 @@ const (
 
 const (
 	PostResponseFormat = "Got %v; should be %v"
+	jsonErrTxt         = "json err: %s"
 )
-
-// const (
-// 	IntBase    = 10
-// 	IntBitSize = 64
-// )
-
-// var (
-// 	True  = true
-// 	False = false
-// )
 
 var (
 	// NonSafeOperations is slice of http methods that are not safe

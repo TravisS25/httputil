@@ -478,11 +478,14 @@ func (a *AuthHandler) MiddlewareFunc(next http.Handler) http.Handler {
 			userBytes, err = a.queryForUser(w, r, a.db)
 
 			if err != nil {
+				isFatalErr := true
+
 				switch err.(type) {
 				case securecookie.Error:
 					cookieErr := err.(securecookie.Error)
 
 					if cookieErr.IsDecode() {
+						isFatalErr = false
 						w.WriteHeader(*a.config.DecodeCookieErrResponse.HTTPStatus)
 						w.Write(a.config.DecodeCookieErrResponse.HTTPResponse)
 					}
@@ -491,12 +494,17 @@ func (a *AuthHandler) MiddlewareFunc(next http.Handler) http.Handler {
 					w.Write(a.config.ServerErrResponse.HTTPResponse)
 				default:
 					if err == sql.ErrNoRows {
+						isFatalErr = false
 						next.ServeHTTP(w, r)
 						//return err
 					} else {
 						w.WriteHeader(*a.config.ServerErrResponse.HTTPStatus)
 						w.Write(a.config.ServerErrResponse.HTTPResponse)
 					}
+				}
+
+				if isFatalErr {
+					httputil.Logger.Errorf("query for user err: %s", err.Error())
 				}
 
 				return err
@@ -535,6 +543,7 @@ func (a *AuthHandler) MiddlewareFunc(next http.Handler) http.Handler {
 				if _, err = r.Cookie(a.config.SessionConfig.SessionName); err == nil {
 					//fmt.Printf("has cookie but not found in store\n")
 					if err = setUser(); err != nil {
+						fmt.Printf("within user\n")
 						return
 					}
 
@@ -555,6 +564,8 @@ func (a *AuthHandler) MiddlewareFunc(next http.Handler) http.Handler {
 								return
 							}
 
+							fmt.Printf("within query session\n")
+
 							w.WriteHeader(*a.config.ServerErrResponse.HTTPStatus)
 							w.Write(a.config.ServerErrResponse.HTTPResponse)
 							return
@@ -565,6 +576,7 @@ func (a *AuthHandler) MiddlewareFunc(next http.Handler) http.Handler {
 						session, err = a.config.SessionStore.New(r, a.config.SessionConfig.SessionName)
 
 						if err != nil {
+							fmt.Printf("within new session\n")
 							w.WriteHeader(*a.config.ServerErrResponse.HTTPStatus)
 							w.Write(a.config.ServerErrResponse.HTTPResponse)
 							return
@@ -587,10 +599,10 @@ func (a *AuthHandler) MiddlewareFunc(next http.Handler) http.Handler {
 				if val, ok := session.Values[a.config.SessionConfig.Keys.UserKey]; ok {
 					//fmt.Printf("found in session")
 					userBytes = val.([]byte)
-
-					err := json.Unmarshal(val.([]byte), &middlewareUser)
+					err := json.Unmarshal(userBytes, &middlewareUser)
 
 					if err != nil {
+						httputil.Logger.Errorf("invalid json from session: %s", err.Error())
 						w.WriteHeader(*a.config.ServerErrResponse.HTTPStatus)
 						w.Write(a.config.ServerErrResponse.HTTPResponse)
 						return
@@ -640,20 +652,20 @@ type GroupHandlerConfig struct {
 }
 
 type GroupHandler struct {
-	config  GroupHandlerConfig
-	db      httputil.DBInterfaceV2
-	queryDB QueryDB
+	config         GroupHandlerConfig
+	db             httputil.DBInterfaceV2
+	queryForGroups QueryDB
 }
 
 func NewGroupHandler(
 	db httputil.DBInterfaceV2,
-	queryDB QueryDB,
+	queryForGroups QueryDB,
 	config GroupHandlerConfig,
 ) *GroupHandler {
 	return &GroupHandler{
-		config:  config,
-		db:      db,
-		queryDB: queryDB,
+		config:         config,
+		db:             db,
+		queryForGroups: queryForGroups,
 	}
 }
 
@@ -673,7 +685,7 @@ func (g *GroupHandler) MiddlewareFunc(next http.Handler) http.Handler {
 
 			setGroupFromDB := func() error {
 				fmt.Printf("group middlware query db\n")
-				groupBytes, err = g.queryDB(w, r, g.db)
+				groupBytes, err = g.queryForGroups(w, r, g.db)
 
 				if err != nil {
 					if err == sql.ErrNoRows {
