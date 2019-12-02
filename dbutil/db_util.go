@@ -146,7 +146,7 @@ func (db *DB) Query(query string, args ...interface{}) (httputil.Rower, error) {
 // a new connection with a different database
 //
 // This function should be used if you have a distributed type database
-// etc. CockroachDB and don't want any interruptions if a node goes down
+// i.e. CockroachDB and don't want any interruptions if a node goes down
 //
 // This function does not check what type of err is passed, just checks
 // if err is nil or not so it's up to user to use appropriately; however
@@ -240,7 +240,7 @@ func NewDBWithList(dbConfigList []confutil.Database, dbType string) (*DB, error)
 	return nil, ErrNoConnection
 }
 
-func dbError(w http.ResponseWriter, err error, db httputil.DBInterfaceV2) bool {
+func dbError(w http.ResponseWriter, err error, db httputil.Recover) bool {
 	if err != nil {
 		confutil.CheckError(err, "")
 
@@ -265,15 +265,11 @@ func dbError(w http.ResponseWriter, err error, db httputil.DBInterfaceV2) bool {
 // This function does not check what type of err is passed, just checks
 // if err is nil or not so it's up to user to use appropriately; however
 // we do a quick ping check just to make sure db is truely down
-// func HasDBError(w http.ResponseWriter, db httputil.DBInterfaceV2, err error) bool {
-// 	return dbError(w, err, db)
-// }
-
-func HasDBError(w http.ResponseWriter, err error, db httputil.DBInterfaceV2) bool {
+func HasDBError(w http.ResponseWriter, err error, db httputil.Recover) bool {
 	return dbError(w, err, db)
 }
 
-func HasQueryOrDBError(w http.ResponseWriter, err error, db httputil.DBInterfaceV2, notFound string) bool {
+func HasQueryOrDBError(w http.ResponseWriter, err error, db httputil.Recover, notFound string) bool {
 	if err == sql.ErrNoRows {
 		w.WriteHeader(http.StatusNotFound)
 		w.Write([]byte(notFound))

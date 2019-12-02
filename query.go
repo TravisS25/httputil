@@ -77,6 +77,10 @@ type DBInterface interface {
 
 type DBInterfaceV2 interface {
 	DBInterface
+	Recover
+}
+
+type Recover interface {
 	RecoverError(err error) bool
 }
 

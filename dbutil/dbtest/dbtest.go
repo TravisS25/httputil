@@ -1,5 +1,11 @@
 package dbtest
 
+import (
+	"database/sql"
+
+	"github.com/TravisS25/httputil"
+)
+
 // --------------------------- TEST SUITES ------------------------------
 
 type logTableReturn struct {
@@ -19,76 +25,48 @@ type PostTestConfig struct {
 	TimeStampCol string
 }
 
-// func PreTest(db httputil.Querier, preTestConf *PreTestConfig) (string, error) {
-// 	var timeStamp string
-// 	scanner := db.QueryRow(`select ` + preTestConf.TimeStampCol + ` from ` + preTestConf.LogTable + ` order by desc` + preTestConf.TimeStampCol)
-// 	err := scanner.Scan(&timeStamp)
+type MockDB struct {
+	QueryRowFunc func(query string, args ...interface{}) httputil.Scanner
+	QueryFunc    func(query string, args ...interface{}) (httputil.Rower, error)
+	ExecFunc     func(string, ...interface{}) (sql.Result, error)
 
-// 	if err != nil {
-// 		return "", err
-// 	}
+	BeginFunc  func() (tx httputil.Tx, err error)
+	CommitFunc func(tx httputil.Tx) error
 
-// 	return timeStamp, nil
-// }
+	GetFunc    func(dest interface{}, query string, args ...interface{}) error
+	SelectFunc func(dest interface{}, query string, args ...interface{}) error
 
-// func PostTest(db httputil.Querier, postTestConf *PostTestConfig, timeStamp string, updateQueries []string) error {
-// 	var query string
-// 	var err error
+	RecoverErrorFunc func(err error) bool
+}
 
-// 	if timeStamp == "" {
-// 		query = `select ` + postTestConf.DBIDCol + `,` + postTestConf.DBTableCol + ` from ` + postTestConf.LogTable
-// 	} else {
-// 		query =
-// 			`select ` +
-// 				postTestConf.DBIDCol + `,` +
-// 				postTestConf.DBTableCol +
-// 				` from ` + postTestConf.LogTable +
-// 				` where ` + postTestConf.TimeStampCol +
-// 				` > ` + timeStamp
-// 	}
+func (m *MockDB) QueryRow(query string, args ...interface{}) httputil.Scanner {
+	return m.QueryRowFunc(query, args...)
+}
 
-// 	if updateQueries != nil {
-// 		tx, _ := db.Begin()
-// 		for _, v := range updateQueries {
-// 			_, err = tx.Exec(v)
+func (m *MockDB) Query(query string, args ...interface{}) (httputil.Rower, error) {
+	return m.QueryFunc(query, args...)
+}
 
-// 			if err != nil {
-// 				return err
-// 			}
-// 		}
+func (m *MockDB) Exec(query string, args ...interface{}) (sql.Result, error) {
+	return m.Exec(query, args...)
+}
 
-// 		err = tx.Commit()
+func (m *MockDB) Begin() (tx httputil.Tx, err error) {
+	return m.BeginFunc()
+}
 
-// 		if err != nil {
-// 			return err
-// 		}
-// 	}
+func (m *MockDB) Commit(tx httputil.Tx) error {
+	return m.CommitFunc(tx)
+}
 
-// 	logReturns := make([]logTableReturn, 0)
-// 	rower, err := db.Query(query)
+func (m *MockDB) Get(dest interface{}, query string, args ...interface{}) error {
+	return m.GetFunc(dest, query, args...)
+}
 
-// 	if err != nil {
-// 		return err
-// 	}
+func (m *MockDB) Select(dest interface{}, query string, args ...interface{}) error {
+	return m.SelectFunc(dest, query, args...)
+}
 
-// 	tx, _ := db.Begin()
-// 	for rower.Next() {
-// 		var id interface{}
-// 		var stamp string
-// 		err = rower.Scan(&id, &stamp)
-
-// 		if err != nil {
-// 			return err
-// 		}
-
-// 		_, err = tx.Exec(`delete from` +)
-// 	}
-
-// 	err = tx.Commit()
-
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	return nil
-// }
+func (m *MockDB) RecoverError(err error) bool {
+	return m.RecoverErrorFunc(err)
+}

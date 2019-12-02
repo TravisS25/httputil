@@ -1,10 +1,23 @@
 package httputil
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"net/http"
 
 	"github.com/pkg/errors"
+)
+
+const (
+	ContentTypeBinary = "application/octet-stream"
+	ContentTypeForm   = "application/x-www-form-urlencoded"
+	ContentTypeJSON   = "application/json"
+	ContentTypePDF    = "application/pdf"
+	ContentTypeHTML   = "text/html; charset=utf-8"
+	ContentTypeText   = "text/plain; charset=utf-8"
+	ContenTypeJPG     = "image/jpeg"
+	ContentTypePNG    = "image/png"
 )
 
 // CheckError simply prints given error in verbose to stdout
@@ -23,6 +36,13 @@ func InsertAt(slice []interface{}, val interface{}, idx int) []interface{} {
 	}
 
 	return slice
+}
+
+func GetJSONBuffer(item interface{}) bytes.Buffer {
+	var buffer bytes.Buffer
+	encoder := json.NewEncoder(&buffer)
+	encoder.Encode(&item)
+	return buffer
 }
 
 // PathRegex is a work around for the fact that injecting and retrieving a route into

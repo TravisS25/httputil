@@ -18,7 +18,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/TravisS25/httputil/apiutil"
+	"github.com/TravisS25/httputil"
 )
 
 const (
@@ -50,9 +50,9 @@ var (
 	False = false
 )
 
-type id interface {
-	GetID() interface{}
-}
+// type id interface {
+// 	GetID() interface{}
+// }
 
 type MockHandler struct {
 	ServeHTTPFunc func(http.ResponseWriter, *http.Request)
@@ -84,7 +84,7 @@ type TestCase struct {
 	//URLValues is form information you wish to post in body of request
 	URLValues url.Values
 	// File is used to simulate a file be uploaded in request
-	// Use the Header option to add additional when needed
+	// Use the Header option to add additional headers when needed
 	// Eg. "Content-type"
 	File io.Reader
 	// Handler is the request handler that you which to test
@@ -124,10 +124,10 @@ type Response struct {
 	ValidateResponseFunc func(bodyResponse io.Reader, expectedResult interface{}) error
 }
 
-type FileConfig struct {
-	File        io.Reader
-	ContentType string
-}
+// type FileConfig struct {
+// 	File        io.Reader
+// 	ContentType string
+// }
 
 func NewRequestWithForm(method, url string, form interface{}) (*http.Request, error) {
 	if form != nil {
@@ -224,7 +224,7 @@ func RunTestCasesV2(t *testing.T, deferFunc func() error, testCases []TestCase) 
 			if testCase.ExpectedBody != "" {
 				if testCase.ExpectedBody != rr.Body.String() {
 					v.Errorf("got body %s; want %s\n", rr.Body.String(), testCase.ExpectedBody)
-					apiutil.CheckError(err, "")
+					httputil.CheckError(err, "")
 				}
 			}
 
@@ -302,7 +302,7 @@ func RunTestCases(t *testing.T, testCases []TestCase) {
 			if testCase.ExpectedBody != "" {
 				if testCase.ExpectedBody != rr.Body.String() {
 					v.Errorf("got body %s; want %s\n", rr.Body.String(), testCase.ExpectedBody)
-					apiutil.CheckError(err, "")
+					httputil.CheckError(err, "")
 				}
 			}
 
@@ -314,14 +314,14 @@ func RunTestCases(t *testing.T, testCases []TestCase) {
 
 				if err != nil {
 					v.Errorf(err.Error() + "\n")
-					apiutil.CheckError(err, "")
+					httputil.CheckError(err, "")
 				}
 			}
 
 			if testCase.PostResponseValidation != nil {
 				if err = testCase.PostResponseValidation(); err != nil {
 					v.Errorf(err.Error() + "\n")
-					apiutil.CheckError(err, "")
+					httputil.CheckError(err, "")
 				}
 			}
 		})
@@ -846,157 +846,6 @@ func validateIDResponse(bodyResponse io.Reader, result int, expectedResults inte
 	return nil
 }
 
-// func validateMapID(result int, bodyResponse io.Reader, expectedResults interface{}) error {
-// 	expectedMap, ok := expectedResults.(map[string]interface{})
-
-// 	if !ok {
-// 		return errors.New("apitesting: Expected result should be map[string]interface{}")
-// 	}
-
-// 	var responseResults map[string]interface{}
-// 	err := SetJSONFromResponse(bodyResponse, &responseResults)
-
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	if len(responseResults) != len(expectedMap) {
-// 		errorMessage := fmt.Sprintf(
-// 			ResponseErrorMessage,
-// 			responseResults,
-// 			expectedMap,
-// 		)
-// 		return errors.New(errorMessage)
-// 	}
-
-// 	// Loop through given expected map of values and check whether the key
-// 	// values are within the body response key values
-// 	//
-// 	// If key exists, determine through reflection if value is struct or
-// 	// slice and compare ids to determine if expected map value
-// 	// equals value of body response map
-// 	//
-// 	// If key does not exist, return err
-// 	for k := range expectedMap {
-// 		if responseVal, ok := responseResults[k]; ok {
-// 			// Get json bytes from body response
-// 			buf := bytes.Buffer{}
-// 			buf.ReadFrom(bodyResponse)
-
-// 			// Determine kind for interface{} value so we can
-// 			// properly convert to typed json
-// 			switch reflect.TypeOf(responseVal).Kind() {
-// 			// If interface{} value is struct, then convert convertedResults
-// 			// and expectedMap to typed json (Int64ID) to compare id
-// 			case reflect.Struct:
-// 				switch result {
-// 				case intMapIDResult:
-
-// 				default:
-
-// 				}
-
-// 				expectedIDBytes, err := json.Marshal(expectedMap[k])
-
-// 				if err != nil {
-// 					message := fmt.Sprintf("apitesting: %s", err.Error())
-// 					return errors.New(message)
-// 				}
-
-// 				responseIDBytes, err := json.Marshal(responseVal)
-
-// 				if err != nil {
-// 					message := fmt.Sprintf("apitesting: %s", err.Error())
-// 					return errors.New(message)
-// 				}
-
-// 				err = json.Unmarshal(expectedIDBytes, &expectedIntID)
-
-// 				if err != nil {
-// 					message := fmt.Sprintf("apitesting: %s", err.Error())
-// 					return errors.New(message)
-// 				}
-
-// 				err = json.Unmarshal(responseIDBytes, &responseIntID)
-
-// 				if err != nil {
-// 					message := fmt.Sprintf("apitesting: %s", err.Error())
-// 					return errors.New(message)
-// 				}
-
-// 				if expectedIntID.ID != responseIntID.ID {
-// 					errorMessage := fmt.Sprintf(
-// 						ResponseErrorMessage,
-// 						responseResults,
-// 						expectedMap,
-// 					)
-// 					return errors.New(errorMessage)
-// 				}
-
-// 			// If interface{} value is slice, then convert body response
-// 			// and expectedMap to typed json (int64MapSliceID) to then
-// 			// loop through and compare ids
-// 			case reflect.Slice:
-// 				var expectedIntIDs []intID
-// 				var responseIntIDs []intID
-
-// 				expectedIDsBytes, err := json.Marshal(expectedMap[k])
-
-// 				if err != nil {
-// 					message := fmt.Sprintf("apitesting: %s", err.Error())
-// 					return errors.New(message)
-// 				}
-
-// 				responseIDsBytes, err := json.Marshal(responseVal)
-
-// 				if err != nil {
-// 					message := fmt.Sprintf("apitesting: %s", err.Error())
-// 					return errors.New(message)
-// 				}
-
-// 				err = json.Unmarshal(expectedIDsBytes, &expectedIntIDs)
-
-// 				if err != nil {
-// 					message := fmt.Sprintf("apitesting: %s", err.Error())
-// 					return errors.New(message)
-// 				}
-
-// 				err = json.Unmarshal(responseIDsBytes, &responseIntIDs)
-
-// 				if err != nil {
-// 					message := fmt.Sprintf("apitesting: %s", err.Error())
-// 					return errors.New(message)
-// 				}
-
-// 				for _, v := range expectedIntIDs {
-// 					containsID := false
-
-// 					for _, t := range responseIntIDs {
-// 						if t.ID == v.ID {
-// 							containsID = true
-// 							break
-// 						}
-// 					}
-
-// 					if !containsID {
-// 						message := fmt.Sprintf(
-// 							"apitesting: Slice response does not contain %d", v.ID,
-// 						)
-// 						return errors.New(message)
-// 					}
-// 				}
-
-// 			// Id interface{} valie is neither struct or slice, then return err
-// 			default:
-// 				return errors.New("apitesting: not valid type")
-// 			}
-// 		} else {
-// 			message := fmt.Sprintf("apitesting: key %s not in results from body", k)
-// 			return errors.New(message)
-// 		}
-// 	}
-// }
-
 func ValidateFilteredIntArrayResponse(bodyResponse io.Reader, expectedResult interface{}) error {
 	return validateIDResponse(bodyResponse, intFilteredIDResult, expectedResult)
 }
@@ -1056,7 +905,7 @@ func SetJSONFromResponse(bodyResponse io.Reader, item interface{}) error {
 		return err
 	}
 
-	fmt.Printf("repsonse: %s", string(response))
+	fmt.Printf("response: %s", string(response))
 
 	err = json.Unmarshal(response, &item)
 
@@ -1067,21 +916,21 @@ func SetJSONFromResponse(bodyResponse io.Reader, item interface{}) error {
 	return nil
 }
 
-// ResponseError is a wrapper function for a http#Response and handling errors
-func ResponseError(t *testing.T, res *http.Response, expectedStatus int, err error) {
-	if err != nil {
-		t.Fatalf("err on response: %s", err.Error())
-	} else {
-		if res.StatusCode != expectedStatus {
-			t.Errorf("Got %d error, should be %d\n", res.StatusCode, expectedStatus)
+// // ResponseError is a wrapper function for a http#Response and handling errors
+// func ResponseError(t *testing.T, res *http.Response, expectedStatus int, err error) {
+// 	if err != nil {
+// 		t.Fatalf("err on response: %s", err.Error())
+// 	} else {
+// 		if res.StatusCode != expectedStatus {
+// 			t.Errorf("Got %d error, should be %d\n", res.StatusCode, expectedStatus)
 
-			if res.Body != nil {
-				resErr, _ := ioutil.ReadAll(res.Body)
-				t.Errorf("Body response: %s\n", string(resErr))
-			}
-		}
-	}
-}
+// 			if res.Body != nil {
+// 				resErr, _ := ioutil.ReadAll(res.Body)
+// 				t.Errorf("Body response: %s\n", string(resErr))
+// 			}
+// 		}
+// 	}
+// }
 
 // LoginUser takes email and password along with login url and form information
 // to use to make a POST request to login url and if successful, return user cookie
@@ -1108,7 +957,7 @@ func LoginUser(url string, loginForm interface{}) (string, error) {
 
 	token := res.Header.Get(TokenHeader)
 	csrf := res.Header.Get(SetCookieHeader)
-	buffer := apiutil.GetJSONBuffer(loginForm)
+	buffer := httputil.GetJSONBuffer(loginForm)
 	req, err = http.NewRequest(http.MethodPost, url, &buffer)
 
 	if err != nil {
@@ -1169,13 +1018,16 @@ func FileBody(params map[string]string, paramName, path string) (io.Reader, stri
 		return nil, "", err
 	}
 
-	for key, val := range params {
-		err = writer.WriteField(key, val)
+	if params != nil {
+		for key, val := range params {
+			err = writer.WriteField(key, val)
 
-		if err != nil {
-			return nil, "", err
+			if err != nil {
+				return nil, "", err
+			}
 		}
 	}
+
 	err = writer.Close()
 	if err != nil {
 		return nil, "", err

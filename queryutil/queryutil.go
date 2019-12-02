@@ -284,11 +284,6 @@ type ParamConfig struct {
 	Group *string
 }
 
-// type FilterConfig struct {
-// 	PrependFilterFields []string
-// 	PrependArgs         []interface{}
-// }
-
 // QueryConfig is config for how the overall execution of the query
 // is supposed to be performed
 type QueryConfig struct {
@@ -333,7 +328,7 @@ type QueryConfig struct {
 	ExcludeLimitWithOffset bool
 
 	// DisableGroupMod is used to determine if a user wants to disable
-	// a query from automically being modified to accommodate a
+	// a query from automatically being modified to accommodate a
 	// group by with order by without the client having to explictly send
 	// group by parameters along with order by
 	//

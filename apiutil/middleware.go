@@ -10,8 +10,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/TravisS25/httputil/confutil"
-
 	"github.com/go-redis/redis"
 	"github.com/urfave/negroni"
 
@@ -21,6 +19,12 @@ import (
 	"github.com/TravisS25/httputil"
 
 	"github.com/TravisS25/httputil/cacheutil"
+)
+
+const (
+	serverErrTxt       = "Server error"
+	unauthorizedURLTxt = "Not authorized to access url"
+	invalidCookieTxt   = "Invalid cookie"
 )
 
 // Query types to be used against the Middleware#QueryDB function
@@ -45,6 +49,16 @@ var (
 	MiddlewareUserCtxKey = MiddlewareKey{KeyName: "middlewareUser"}
 )
 
+// HTTPResponseConfig is used to give default header and response
+// values of an http request
+// This will mainly be used for middleware config structs
+// to allow user of middleware more control on what gets
+// send back to the user
+type HTTPResponseConfig struct {
+	HTTPStatus   *int
+	HTTPResponse []byte
+}
+
 type MiddlewareKey struct {
 	KeyName string
 }
@@ -62,6 +76,15 @@ type InsertLogger interface {
 }
 
 type QueryDB func(w http.ResponseWriter, res *http.Request, db httputil.DBInterfaceV2) ([]byte, error)
+
+func setHTTPResponseDefaults(config *HTTPResponseConfig, defaultStatus int, defaultResponse []byte) {
+	if config.HTTPStatus == nil {
+		config.HTTPStatus = &defaultStatus
+	}
+	if config.HTTPResponse == nil {
+		config.HTTPResponse = defaultResponse
+	}
+}
 
 type Middleware struct {
 	CacheStore   cacheutil.CacheStore
@@ -188,7 +211,7 @@ func (m *Middleware) AuthMiddleware(w http.ResponseWriter, r *http.Request, next
 					session, _ = m.SessionStore.New(r, m.SessionKeys.SessionName)
 					session.ID = string(sessionIDBytes)
 					fmt.Printf("session id: %s\n", session.ID)
-					session.Values[m.SessionKeys.UserKey] = userBytes
+					session.Values[m.SessionKeys.Keys.UserKey] = userBytes
 					session.Save(r, w)
 					fmt.Printf("set session into store \n")
 				}
@@ -204,7 +227,7 @@ func (m *Middleware) AuthMiddleware(w http.ResponseWriter, r *http.Request, next
 			next(w, r)
 		}
 	} else {
-		if val, ok := session.Values[m.SessionKeys.UserKey]; ok {
+		if val, ok := session.Values[m.SessionKeys.Keys.UserKey]; ok {
 			userBytes := val.([]byte)
 
 			err := json.Unmarshal(val.([]byte), &middlewareUser)
@@ -364,85 +387,154 @@ func (m *Middleware) RoutingMiddleware(w http.ResponseWriter, r *http.Request, n
 
 // -----------------------------------------------------------
 
+// AuthHandlerConfig is used as config struct for AuthHandler
+// These settings are not required but if user wants to use things
+// like a different session store besides a database, these should
+// be set
+type AuthHandlerConfig struct {
+	// SessionStore is used to implement a backend to store sessions
+	// besides a database like file system or in-memory database
+	// i.e. Redis
+	SessionStore cacheutil.SessionStore
+
+	// SessionKeys is just an arbitrary set of common key names to store
+	// in a session values
+	SessionConfig cacheutil.SessionConfig
+
+	// QueryForSession is used for inserting a session value from a database
+	// to the entity that implements SessionStore
+	// This is used in the case where a person logs in while the entity that
+	// implements SessionStore is down and must query session from database
+	//
+	// If this is set, the implementing function should return the session id
+	// from a database which will then be set to SessionStore if/when it comes back up
+	//
+	// This is bascially a recovery method if implementing SessionStore ever
+	// goes down or some how gets its values flushed
+	QueryForSession func(w http.ResponseWriter, db httputil.DBInterfaceV2, userID string) (sessionID string, err error)
+
+	// DecodeCookieErrResponse is config used to respond to user if decoding
+	// a cookie is invalid
+	// This usually happens when a user sends an invalid cookie on request
+	//
+	// Default status value is http.StatusBadRequest
+	// Default response value is []byte("Invalid cookie")
+	DecodeCookieErrResponse HTTPResponseConfig
+
+	// ServerErrResponse is config used to respond to user if some type
+	// of server error occurs
+	//
+	// Default status value is http.StatusInternalServerError
+	// Default response value is []byte("Server error")
+	ServerErrResponse HTTPResponseConfig
+
+	// NoRowsErrResponse is config used to respond to user if the returned
+	// error result of AuthHandler#queryForUser is sql.ErrNoRows
+	// This should be returned if there are no results when trying to grab
+	// a user from the database
+	//
+	// Default status value is http.StatusInternalServerError
+	// Default response value is []byte("User Not Found")
+	//NoRowsErrResponse HTTPResponseConfig
+}
+
 type AuthHandler struct {
-	handler         http.Handler
-	sessionStore    cacheutil.SessionStore
-	db              httputil.DBInterfaceV2
-	queryForUser    QueryDB
-	queryForSession func(http.ResponseWriter, httputil.DBInterfaceV2, string) (string, error)
-	sessionKeys     *cacheutil.SessionConfig
+	db           httputil.DBInterfaceV2
+	queryForUser QueryDB
+	config       AuthHandlerConfig
 }
 
 func NewAuthHandler(
 	db httputil.DBInterfaceV2,
 	queryForUser QueryDB,
-	queryForSession func(http.ResponseWriter, httputil.DBInterfaceV2, string) (string, error),
-	sessionStore cacheutil.SessionStore,
-	sessionKeys *cacheutil.SessionConfig,
+	config AuthHandlerConfig,
+	//queryForSession func(http.ResponseWriter, httputil.DBInterfaceV2, string) (string, error),
+	//sessionStore cacheutil.SessionStore,
 ) *AuthHandler {
 	return &AuthHandler{
 		//handler:      handler,
-		sessionStore:    sessionStore,
-		sessionKeys:     sessionKeys,
-		db:              db,
-		queryForUser:    queryForUser,
-		queryForSession: queryForSession,
+		// sessionStore: sessionStore,
+		// sessionKeys:  sessionKeys,
+		db:           db,
+		queryForUser: queryForUser,
+		config:       config,
+		//queryForSession: queryForSession,
 		//queryDB:      queryDB,
 	}
 }
 
 func (a *AuthHandler) MiddlewareFunc(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		//fmt.Printf("auth middleware\n")
+		var userBytes []byte
 		var middlewareUser middlewareUser
 		var session *sessions.Session
 		var err error
 
-		if a.sessionKeys == nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
+		// Setting up default values from passed configs if none are set
+		setHTTPResponseDefaults(&a.config.DecodeCookieErrResponse, http.StatusBadRequest, []byte(invalidCookieTxt))
+		setHTTPResponseDefaults(&a.config.ServerErrResponse, http.StatusInternalServerError, []byte(serverErrTxt))
 
-		session, err = a.sessionStore.Get(r, a.sessionKeys.SessionName)
+		setUser := func() error {
+			userBytes, err = a.queryForUser(w, r, a.db)
 
-		if err != nil {
-			//fmt.Printf("no session err: %s\n", err.Error())
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
+			if err != nil {
+				switch err.(type) {
+				case securecookie.Error:
+					cookieErr := err.(securecookie.Error)
 
-		// If session is considered new, that means
-		// either current user is truly not logged in or cache was/is down
-		if session.IsNew {
-			//fmt.Printf("new session\n")
-
-			// First we determine if user is sending a cookie with our user cookie key
-			// If they are, try retrieving from db if Middleware#QueryDB is set
-			if _, err := r.Cookie(a.sessionKeys.SessionName); err == nil {
-				//fmt.Printf("has cookie but not found in store\n")
-				if a.db != nil && a.queryForUser != nil {
-					//fmt.Printf("auth middleware db\n")
-					userBytes, err := a.queryForUser(w, r, a.db)
-
-					if err != nil {
-						switch err.(type) {
-						case securecookie.Error:
-							w.WriteHeader(http.StatusBadRequest)
-						default:
-							if err == sql.ErrNoRows {
-								w.WriteHeader(http.StatusBadRequest)
-							} else {
-								w.WriteHeader(http.StatusInternalServerError)
-							}
-						}
-						return
+					if cookieErr.IsDecode() {
+						w.WriteHeader(*a.config.DecodeCookieErrResponse.HTTPStatus)
+						w.Write(a.config.DecodeCookieErrResponse.HTTPResponse)
 					}
 
-					err = json.Unmarshal(userBytes, &middlewareUser)
+					w.WriteHeader(*a.config.ServerErrResponse.HTTPStatus)
+					w.Write(a.config.ServerErrResponse.HTTPResponse)
+				default:
+					if err == sql.ErrNoRows {
+						next.ServeHTTP(w, r)
+						//return err
+					} else {
+						w.WriteHeader(*a.config.ServerErrResponse.HTTPStatus)
+						w.Write(a.config.ServerErrResponse.HTTPResponse)
+					}
+				}
 
-					if err != nil {
-						w.WriteHeader(http.StatusInternalServerError)
-						w.Write([]byte(err.Error()))
+				return err
+			}
+
+			err = json.Unmarshal(userBytes, &middlewareUser)
+
+			if err != nil {
+				w.WriteHeader(*a.config.ServerErrResponse.HTTPStatus)
+				w.Write(a.config.ServerErrResponse.HTTPResponse)
+				return err
+			}
+
+			return nil
+		}
+
+		// If user sets SessionStore, then we try retrieving session from implemented
+		// SessionStore which usually is a file system or in-memory database i.e. Redis
+		if a.config.SessionStore != nil {
+			session, err = a.config.SessionStore.Get(r, a.config.SessionConfig.SessionName)
+
+			if err != nil {
+				w.WriteHeader(*a.config.ServerErrResponse.HTTPStatus)
+				w.Write(a.config.ServerErrResponse.HTTPResponse)
+				return
+			}
+
+			// If session is considered new, that means
+			// either current user is truly not logged in or cache was/is down
+			if session.IsNew {
+				//fmt.Printf("new session\n")
+
+				// First we determine if user is sending a cookie with our user cookie key
+				// If they are, try retrieving from db if AuthHandler#queryForUser is set
+				// Else, continue to next handler
+				if _, err = r.Cookie(a.config.SessionConfig.SessionName); err == nil {
+					//fmt.Printf("has cookie but not found in store\n")
+					if err = setUser(); err != nil {
 						return
 					}
 
@@ -452,9 +544,9 @@ func (a *AuthHandler) MiddlewareFunc(next http.Handler) http.Handler {
 					// backend is back up, we can grab current user's session from
 					// database and set it to session backend and use that instead of database
 					// for future requests
-					if _, err = a.sessionStore.Ping(); err == nil {
+					if _, err = a.config.SessionStore.Ping(); err == nil && a.config.QueryForSession != nil {
 						//fmt.Printf("ping successful\n")
-						sessionIDBytes, err := a.queryForSession(w, a.db, middlewareUser.ID)
+						sessionStr, err := a.config.QueryForSession(w, a.db, middlewareUser.ID)
 
 						if err != nil {
 							if err == sql.ErrNoRows {
@@ -463,103 +555,44 @@ func (a *AuthHandler) MiddlewareFunc(next http.Handler) http.Handler {
 								return
 							}
 
-							w.WriteHeader(http.StatusInternalServerError)
+							w.WriteHeader(*a.config.ServerErrResponse.HTTPStatus)
+							w.Write(a.config.ServerErrResponse.HTTPResponse)
 							return
 						}
 
-						fmt.Printf("session bytes: %s\n", sessionIDBytes)
+						fmt.Printf("session bytes: %s\n", sessionStr)
 
-						session, _ = a.sessionStore.New(r, a.sessionKeys.SessionName)
-						session.ID = string(sessionIDBytes)
-						fmt.Printf("session id: %s\n", session.ID)
-						session.Values[a.sessionKeys.UserKey] = userBytes
-						session.Save(r, w)
-						//fmt.Printf("set session into store \n")
-					}
-
-					ctx := context.WithValue(r.Context(), UserCtxKey, userBytes)
-					ctxWithEmail := context.WithValue(ctx, MiddlewareUserCtxKey, middlewareUser)
-					next.ServeHTTP(w, r.WithContext(ctxWithEmail))
-				} else {
-					next.ServeHTTP(w, r)
-				}
-			} else {
-				//fmt.Printf("new session, no cookie\n")
-				next.ServeHTTP(w, r)
-			}
-		} else {
-			//fmt.Printf("not new session")
-			if val, ok := session.Values[a.sessionKeys.UserKey]; ok {
-				//fmt.Printf("found in session")
-				userBytes := val.([]byte)
-
-				err := json.Unmarshal(val.([]byte), &middlewareUser)
-
-				if err != nil {
-					w.WriteHeader(http.StatusInternalServerError)
-					w.Write([]byte(err.Error()))
-					return
-				}
-
-				ctx := context.WithValue(r.Context(), UserCtxKey, userBytes)
-				ctxWithEmail := context.WithValue(ctx, MiddlewareUserCtxKey, middlewareUser)
-				next.ServeHTTP(w, r.WithContext(ctxWithEmail))
-			} else {
-				next.ServeHTTP(w, r)
-			}
-		}
-	})
-}
-
-type GroupHandler struct {
-	//handler    http.Handler
-	cacheStore cacheutil.CacheStore
-	db         httputil.DBInterfaceV2
-	queryDB    QueryDB
-}
-
-func NewGroupHandler(
-	//handler http.Handler,
-	db httputil.DBInterfaceV2,
-	queryDB QueryDB,
-	cacheStore cacheutil.CacheStore,
-) *GroupHandler {
-	return &GroupHandler{
-		//handler:    handler,
-		cacheStore: cacheStore,
-		db:         db,
-		queryDB:    queryDB,
-	}
-}
-
-func (g *GroupHandler) MiddlewareFunc(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		//fmt.Printf("group middleware\n")
-		if r.Context().Value(MiddlewareUserCtxKey) != nil {
-			var groupMap map[string]bool
-
-			user := r.Context().Value(MiddlewareUserCtxKey).(middlewareUser)
-			groups := fmt.Sprintf(GroupKey, user.Email)
-			groupBytes, err := g.cacheStore.Get(groups)
-
-			if err != nil {
-				if err != redis.Nil {
-					if g.db != nil && g.queryDB != nil {
-						//fmt.Printf("group middleware db\n")
-						groupBytes, err = g.queryDB(w, r, g.db)
+						session, err = a.config.SessionStore.New(r, a.config.SessionConfig.SessionName)
 
 						if err != nil {
-							if err == sql.ErrNoRows {
-								//fmt.Printf("group middleware db no row found\n")
-								next.ServeHTTP(w, r)
-								return
-							}
-
-							w.WriteHeader(http.StatusInternalServerError)
+							w.WriteHeader(*a.config.ServerErrResponse.HTTPStatus)
+							w.Write(a.config.ServerErrResponse.HTTPResponse)
 							return
 						}
-					} else {
-						w.WriteHeader(http.StatusInternalServerError)
+
+						session.ID = sessionStr
+						fmt.Printf("session id: %s\n", session.ID)
+						session.Values[a.config.SessionConfig.Keys.UserKey] = userBytes
+						session.Save(r, w)
+					}
+
+					//setCtxAndServe()
+				} else {
+					//fmt.Printf("new session, no cookie\n")
+					next.ServeHTTP(w, r)
+					return
+				}
+			} else {
+				//fmt.Printf("not new session")
+				if val, ok := session.Values[a.config.SessionConfig.Keys.UserKey]; ok {
+					//fmt.Printf("found in session")
+					userBytes = val.([]byte)
+
+					err := json.Unmarshal(val.([]byte), &middlewareUser)
+
+					if err != nil {
+						w.WriteHeader(*a.config.ServerErrResponse.HTTPStatus)
+						w.Write(a.config.ServerErrResponse.HTTPResponse)
 						return
 					}
 				} else {
@@ -567,43 +600,189 @@ func (g *GroupHandler) MiddlewareFunc(next http.Handler) http.Handler {
 					return
 				}
 			}
+		} else {
+			if err = setUser(); err != nil {
+				return
+			}
+		}
 
-			fmt.Printf("")
-			json.Unmarshal(groupBytes, &groupMap)
+		ctx := context.WithValue(r.Context(), UserCtxKey, userBytes)
+		ctxWithEmail := context.WithValue(ctx, MiddlewareUserCtxKey, middlewareUser)
+		next.ServeHTTP(w, r.WithContext(ctxWithEmail))
+	})
+}
+
+// setConfig is really only here for testing purposes
+func (a *AuthHandler) setConfig(config AuthHandlerConfig) {
+	a.config = config
+}
+
+// GroupHandlerConfig is config struct used for GroupHandler
+// The settings don't have to be set but if programmer wants to
+// be able to store user group information in cache instead
+// of database, this can be achieved by implementing CacheStore
+type GroupHandlerConfig struct {
+	// CacheStore is used for retrieving results from a in-memory
+	// database like Redis
+	CacheStore cacheutil.CacheStore
+
+	// IgnoreCacheNil will query database for group information
+	// even if cache returns nil
+	// CacheStore must be initialized to use this
+	IgnoreCacheNil bool
+
+	// ServerErrResponse is config used to respond to user if some type
+	// of server error occurs
+	//
+	// Default status value is http.StatusInternalServerError
+	// Default response value is []byte("Server error")
+	ServerErrResponse HTTPResponseConfig
+}
+
+type GroupHandler struct {
+	config  GroupHandlerConfig
+	db      httputil.DBInterfaceV2
+	queryDB QueryDB
+}
+
+func NewGroupHandler(
+	db httputil.DBInterfaceV2,
+	queryDB QueryDB,
+	config GroupHandlerConfig,
+) *GroupHandler {
+	return &GroupHandler{
+		config:  config,
+		db:      db,
+		queryDB: queryDB,
+	}
+}
+
+func (g *GroupHandler) MiddlewareFunc(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user := r.Context().Value(MiddlewareUserCtxKey)
+
+		if user != nil {
+			var groupMap map[string]bool
+			var err error
+			var groupBytes []byte
+
+			// Setting up default values from passed configs if none are set
+			setHTTPResponseDefaults(&g.config.ServerErrResponse, http.StatusInternalServerError, []byte(serverErrTxt))
+			user := user.(middlewareUser)
+			groups := fmt.Sprintf(GroupKey, user.Email)
+
+			setGroupFromDB := func() error {
+				fmt.Printf("group middlware query db\n")
+				groupBytes, err = g.queryDB(w, r, g.db)
+
+				if err != nil {
+					if err == sql.ErrNoRows {
+						next.ServeHTTP(w, r)
+						return err
+					}
+
+					w.WriteHeader(*g.config.ServerErrResponse.HTTPStatus)
+					w.Write(g.config.ServerErrResponse.HTTPResponse)
+					return err
+				}
+
+				err = json.Unmarshal(groupBytes, &groupMap)
+
+				if err != nil {
+					w.WriteHeader(*g.config.ServerErrResponse.HTTPStatus)
+					w.Write(g.config.ServerErrResponse.HTTPResponse)
+					return err
+				}
+
+				return nil
+			}
+
+			// If cache is set, try to get group info from cache
+			if g.config.CacheStore != nil {
+				groupBytes, err = g.config.CacheStore.Get(groups)
+
+				if err != nil {
+					// If err occurs and is not a nil err,
+					// query from database
+					if err != cacheutil.ErrCacheNil {
+						if err = setGroupFromDB(); err != nil {
+							return
+						}
+					} else {
+						// If GroupHandlerConfig#IgnoreCacheNil is set,
+						// then we ignore that the cache result came back
+						// nil and query the database anyways
+						if g.config.IgnoreCacheNil {
+							if err = setGroupFromDB(); err != nil {
+								return
+							}
+						} else {
+							next.ServeHTTP(w, r)
+							return
+						}
+					}
+				}
+			} else {
+				if err = setGroupFromDB(); err != nil {
+					return
+				}
+			}
+
 			ctx := context.WithValue(r.Context(), GroupCtxKey, groupMap)
-
 			next.ServeHTTP(w, r.WithContext(ctx))
 		} else {
-			//fmt.Printf("no user group middleware\n")
 			next.ServeHTTP(w, r)
 		}
 	})
 }
 
+type RoutingHandlerConfig struct {
+	// CacheStore is used for retrieving results from a in-memory
+	// database like Redis
+	CacheStore cacheutil.CacheStore
+
+	// IgnoreCacheNil will query database for group information
+	// even if cache returns nil
+	// CacheStore must be initialized to use this
+	IgnoreCacheNil bool
+
+	// ServerErrResponse is config used to respond to user if some type
+	// of server error occurs
+	//
+	// Default status value is http.StatusInternalServerError
+	// Default response value is []byte("Server Error")
+	ServerErrResponse HTTPResponseConfig
+
+	// UnauthorizedErrResponse is config used to respond to user if none
+	// of the nonUserURLs keys or queried urls match the apis
+	// a user is allowed to access
+	//
+	// Default status value is http.StatusForbidden
+	// Default response value is []byte("Not authorized to access url")
+	UnauthorizedErrResponse HTTPResponseConfig
+}
+
 type RoutingHandler struct {
-	//handler     http.Handler
-	cacheStore  cacheutil.CacheStore
 	db          httputil.DBInterfaceV2
 	queryDB     QueryDB
 	pathRegex   httputil.PathRegex
 	nonUserURLs map[string]bool
+	config      RoutingHandlerConfig
 }
 
 func NewRoutingHandler(
-	//handler http.Handler,
 	db httputil.DBInterfaceV2,
 	queryDB QueryDB,
-	cacheStore cacheutil.CacheStore,
 	pathRegex httputil.PathRegex,
 	nonUserURLs map[string]bool,
+	config RoutingHandlerConfig,
 ) *RoutingHandler {
 	return &RoutingHandler{
-		//handler:     handler,
-		cacheStore:  cacheStore,
 		db:          db,
 		queryDB:     queryDB,
 		pathRegex:   pathRegex,
 		nonUserURLs: nonUserURLs,
+		config:      config,
 	}
 }
 
@@ -612,58 +791,81 @@ func (routing *RoutingHandler) MiddlewareFunc(next http.Handler) http.Handler {
 		//fmt.Printf("routing middleware\n")
 		if r.Method != http.MethodOptions {
 			var urlBytes []byte
-			var err, cacheErr error
+			var urls map[string]bool
+			var err error
 
-			user := r.Context().Value(UserCtxKey)
-			pathExp, _ := routing.pathRegex(r)
-			allowedPath := false
+			setHTTPResponseDefaults(&routing.config.UnauthorizedErrResponse, http.StatusInternalServerError, []byte(unauthorizedURLTxt))
+			setHTTPResponseDefaults(&routing.config.ServerErrResponse, http.StatusInternalServerError, []byte(serverErrTxt))
 
-			if user != nil {
-				//fmt.Printf("routing user\n")
-				user := r.Context().Value(MiddlewareUserCtxKey).(middlewareUser)
-				key := fmt.Sprintf(URLKey, user.Email)
-				urlBytes, cacheErr = routing.cacheStore.Get(key)
+			// Queries from db and sets the bytes returned to url map
+			setURLsFromDB := func() error {
+				urlBytes, err = routing.queryDB(w, r, routing.db)
 
-				if cacheErr != nil {
-					fmt.Printf("chache err")
-					if err != redis.Nil {
-						if routing.db != nil && routing.queryDB != nil {
-							//fmt.Printf("routing middleware db\n")
-							urlBytes, err = routing.queryDB(w, r, routing.db)
-
-							if err != nil {
-								if err == sql.ErrNoRows {
-									//fmt.Printf("routing middleware db no row found\n")
-									next.ServeHTTP(w, r)
-									return
-								}
-
-								w.WriteHeader(http.StatusInternalServerError)
-								return
-							}
-						} else {
-							w.WriteHeader(http.StatusInternalServerError)
-							return
-						}
-					} else {
+				if err != nil {
+					if err == sql.ErrNoRows {
 						next.ServeHTTP(w, r)
-						return
+						return err
 					}
+
+					w.WriteHeader(*routing.config.ServerErrResponse.HTTPStatus)
+					w.Write(routing.config.ServerErrResponse.HTTPResponse)
+					return err
 				}
 
-				var urls map[string]bool
 				err = json.Unmarshal(urlBytes, &urls)
 
 				if err != nil {
-					confutil.CheckError(err, "")
-					w.WriteHeader(http.StatusInternalServerError)
-					w.Write([]byte(err.Error()))
-					return
+					w.WriteHeader(*routing.config.ServerErrResponse.HTTPStatus)
+					w.Write(routing.config.ServerErrResponse.HTTPResponse)
+					return err
 				}
 
-				//fmt.Printf("user path urls: %v\n", urls)
-				if _, ok := urls[pathExp]; ok {
-					allowedPath = true
+				return nil
+			}
+
+			pathExp, err := routing.pathRegex(r)
+
+			if err != nil {
+				w.WriteHeader(*routing.config.ServerErrResponse.HTTPStatus)
+				w.Write(routing.config.ServerErrResponse.HTTPResponse)
+				return
+			}
+
+			allowedPath := false
+			user := r.Context().Value(MiddlewareUserCtxKey)
+
+			if user != nil {
+				//fmt.Printf("routing user\n")
+				user := user.(middlewareUser)
+				key := fmt.Sprintf(URLKey, user.Email)
+
+				if routing.config.CacheStore != nil {
+					urlBytes, err = routing.config.CacheStore.Get(key)
+
+					if err != nil {
+						if err != cacheutil.ErrCacheNil {
+							if err = setURLsFromDB(); err != nil {
+								return
+							}
+						} else {
+							// If RoutingHandlerConfig#IgnoreCacheNil is set,
+							// then we ignore that the cache result came back
+							// nil and query the database anyways
+							if routing.config.IgnoreCacheNil {
+								if err = setURLsFromDB(); err != nil {
+									return
+								}
+							} else {
+								next.ServeHTTP(w, r)
+								return
+							}
+						}
+					}
+
+					//fmt.Printf("user path urls: %v\n", urls)
+					if _, ok := urls[pathExp]; ok {
+						allowedPath = true
+					}
 				}
 			} else {
 				//fmt.Printf("non user\n")
@@ -673,9 +875,11 @@ func (routing *RoutingHandler) MiddlewareFunc(next http.Handler) http.Handler {
 				}
 			}
 
+			// If returned urls do not match an urls user is allowed to
+			// access, return with error response
 			if !allowedPath {
-				w.WriteHeader(http.StatusForbidden)
-				w.Write([]byte("Not authorized to access url"))
+				w.WriteHeader(*routing.config.UnauthorizedErrResponse.HTTPStatus)
+				w.Write(routing.config.UnauthorizedErrResponse.HTTPResponse)
 				return
 			}
 		}

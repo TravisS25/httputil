@@ -973,44 +973,6 @@ func GetFormSelections(
 	}
 
 	return forms, nil
-
-	// if err != nil {
-	// 	query, args, err = queryutil.InQueryRebind(bindVar, query, args...)
-
-	// 	if apiutil.HasServerError(w, err, "") {
-	// 		return nil, err
-	// 	}
-
-	// 	rower, err := db.Query(query, args...)
-
-	// 	if dbutil.HasDBError(w, err, db) {
-	// 		return nil, err
-	// 	}
-
-	// 	for rower.Next() {
-	// 		form := FormSelection{}
-	// 		err = rower.Scan(
-	// 			&form.Value,
-	// 			&form.Text,
-	// 		)
-
-	// 		if dbutil.HasDBError(w, err, db) {
-	// 			return nil, err
-	// 		}
-
-	// 		forms = append(forms, form)
-	// 	}
-
-	// 	return forms, nil
-	// }
-
-	// err = json.Unmarshal(jsonBytes, &forms)
-
-	// if apiutil.HasServerError(w, err, "") {
-	// 	return nil, err
-	// }
-
-	// return forms, nil
 }
 
 func CheckBodyAndDecode(req *http.Request, form interface{}) error {

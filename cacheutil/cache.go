@@ -10,30 +10,31 @@ import (
 )
 
 var (
-	ErrMockCache = errors.New("mockcache: testing")
+	//ErrMockCache = errors.New("mockcache: testing")
+	ErrCacheNil = errors.New("cacheutil: cache is nil")
 )
 
-type MockCache struct {
-	GetFunc    func(key string) ([]byte, error)
-	HasKeyFunc func(key string) (bool, error)
-}
+// type MockCache struct {
+// 	GetFunc    func(key string) ([]byte, error)
+// 	HasKeyFunc func(key string) (bool, error)
+// }
 
-func (m MockCache) Get(key string) ([]byte, error) {
-	if m.GetFunc == nil {
-		return nil, errors.New("mockcache: testing")
-	}
+// func (m MockCache) Get(key string) ([]byte, error) {
+// 	if m.GetFunc == nil {
+// 		return nil, errors.New("mockcache: testing")
+// 	}
 
-	return m.GetFunc(key)
-}
-func (m MockCache) Set(key string, value interface{}, expiration time.Duration) {}
-func (m MockCache) Del(keys ...string)                                          {}
-func (m MockCache) HasKey(key string) (bool, error) {
-	if m.HasKeyFunc == nil {
-		errors.New("mockcache: testing")
-	}
+// 	return m.GetFunc(key)
+// }
+// func (m MockCache) Set(key string, value interface{}, expiration time.Duration) {}
+// func (m MockCache) Del(keys ...string)                                          {}
+// func (m MockCache) HasKey(key string) (bool, error) {
+// 	if m.HasKeyFunc == nil {
+// 		errors.New("mockcache: testing")
+// 	}
 
-	return m.HasKeyFunc(key)
-}
+// 	return m.HasKeyFunc(key)
+// }
 
 // CacheStore is interface used to get, set and delete cached values
 // from structs that implement it
@@ -42,6 +43,11 @@ type CacheStore interface {
 	Set(key string, value interface{}, expiration time.Duration)
 	Del(keys ...string)
 	HasKey(key string) (bool, error)
+}
+
+type SessionStore interface {
+	sessions.Store
+	Ping() (bool, error)
 }
 
 // ClientCache is default struct that implements the CacheStore interface
@@ -59,7 +65,19 @@ func NewClientCache(client *redis.Client) *ClientCache {
 // Get gets value based on key passed
 // Returns error if key does not exist
 func (c *ClientCache) Get(key string) ([]byte, error) {
-	return c.Client.Get(key).Bytes()
+	var resultsErr error
+
+	results, err := c.Client.Get(key).Bytes()
+
+	if err != nil {
+		if err == redis.Nil {
+			resultsErr = ErrCacheNil
+		} else {
+			resultsErr = err
+		}
+	}
+
+	return results, resultsErr
 }
 
 // Set sets value in redis server based on key and value given
@@ -87,12 +105,11 @@ func (c *ClientCache) HasKey(key string) (bool, error) {
 
 type SessionConfig struct {
 	SessionName string
-	UserKey     string
+	Keys        SessionKeys
 }
 
-type SessionStore interface {
-	sessions.Store
-	Ping() (bool, error)
+type SessionKeys struct {
+	UserKey string
 }
 
 type RedisStore struct {

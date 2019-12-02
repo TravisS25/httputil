@@ -9,8 +9,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/gorilla/mux"
-
 	"github.com/TravisS25/httputil/confutil"
 
 	"github.com/TravisS25/httputil/mailutil"
@@ -29,22 +27,18 @@ const (
 )
 
 const (
-	IDParam = "{id:[0-9]+}"
-)
-
-const (
 	PostResponseFormat = "Got %v; should be %v"
 )
 
-const (
-	IntBase    = 10
-	IntBitSize = 64
-)
+// const (
+// 	IntBase    = 10
+// 	IntBitSize = 64
+// )
 
-var (
-	True  = true
-	False = false
-)
+// var (
+// 	True  = true
+// 	False = false
+// )
 
 var (
 	// NonSafeOperations is slice of http methods that are not safe
@@ -392,35 +386,35 @@ func SetSecureCookie(w http.ResponseWriter, session *sessions.Session, keyPairs 
 	return nil
 }
 
-func GetRouterExpressionPaths(r *mux.Router, paths map[int]string) (map[int]string, error) {
-	pathExps := make(map[int]string, len(paths))
+// func GetRouterExpressionPaths(r *mux.Router, paths map[int]string) (map[int]string, error) {
+// 	pathExps := make(map[int]string, len(paths))
 
-	err := r.Walk(func(route *mux.Route, router *mux.Router, ancestors []*mux.Route) error {
-		exp, err := route.GetPathRegexp()
+// 	err := r.Walk(func(route *mux.Route, router *mux.Router, ancestors []*mux.Route) error {
+// 		exp, err := route.GetPathRegexp()
 
-		if err != nil {
-			return err
-		}
+// 		if err != nil {
+// 			return err
+// 		}
 
-		//fmt.Printf("exp: %s\n", exp)
+// 		//fmt.Printf("exp: %s\n", exp)
 
-		path, err := route.GetPathTemplate()
+// 		path, err := route.GetPathTemplate()
 
-		fmt.Printf("path: %s\n", path)
+// 		fmt.Printf("path: %s\n", path)
 
-		if err != nil {
-			return err
-		}
+// 		if err != nil {
+// 			return err
+// 		}
 
-		for k, v := range paths {
-			if v == path {
-				pathExps[k] = exp
-				break
-			}
-		}
+// 		for k, v := range paths {
+// 			if v == path {
+// 				pathExps[k] = exp
+// 				break
+// 			}
+// 		}
 
-		return nil
-	})
+// 		return nil
+// 	})
 
-	return pathExps, err
-}
+// 	return pathExps, err
+// }
