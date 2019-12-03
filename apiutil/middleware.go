@@ -448,18 +448,11 @@ func NewAuthHandler(
 	db httputil.DBInterfaceV2,
 	queryForUser QueryDB,
 	config AuthHandlerConfig,
-	//queryForSession func(http.ResponseWriter, httputil.DBInterfaceV2, string) (string, error),
-	//sessionStore cacheutil.SessionStore,
 ) *AuthHandler {
 	return &AuthHandler{
-		//handler:      handler,
-		// sessionStore: sessionStore,
-		// sessionKeys:  sessionKeys,
 		db:           db,
 		queryForUser: queryForUser,
 		config:       config,
-		//queryForSession: queryForSession,
-		//queryDB:      queryDB,
 	}
 }
 
