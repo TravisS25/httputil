@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	ErrMockCache = errors.New("cachetest: testing")
+	ErrMockCache = errors.New("cachetest: testing err")
 )
 
 type MockCache struct {

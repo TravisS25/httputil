@@ -22,9 +22,9 @@ import (
 )
 
 const (
-	serverErrTxt       = "Server error"
-	unauthorizedURLTxt = "Not authorized to access url"
-	invalidCookieTxt   = "Invalid cookie"
+	serverErrTxt     = "Server error"
+	forbiddenURLTxt  = "Forbidden to access url"
+	invalidCookieTxt = "Invalid cookie"
 )
 
 // Query types to be used against the Middleware#QueryDB function
@@ -688,6 +688,7 @@ func (g *GroupHandler) MiddlewareFunc(next http.Handler) http.Handler {
 
 					w.WriteHeader(*g.config.ServerErrResponse.HTTPStatus)
 					w.Write(g.config.ServerErrResponse.HTTPResponse)
+					//w.Write([]byte("err from db"))
 					return err
 				}
 
@@ -696,6 +697,7 @@ func (g *GroupHandler) MiddlewareFunc(next http.Handler) http.Handler {
 				if err != nil {
 					w.WriteHeader(*g.config.ServerErrResponse.HTTPStatus)
 					w.Write(g.config.ServerErrResponse.HTTPResponse)
+					//w.Write([]byte("json err from set group"))
 					return err
 				}
 
@@ -703,6 +705,7 @@ func (g *GroupHandler) MiddlewareFunc(next http.Handler) http.Handler {
 			}
 
 			// If cache is set, try to get group info from cache
+			// Else query from db
 			if g.config.CacheStore != nil {
 				groupBytes, err = g.config.CacheStore.Get(groups)
 
@@ -725,6 +728,14 @@ func (g *GroupHandler) MiddlewareFunc(next http.Handler) http.Handler {
 							next.ServeHTTP(w, r)
 							return
 						}
+					}
+				} else {
+					err = json.Unmarshal(groupBytes, &groupMap)
+
+					if err != nil {
+						w.WriteHeader(*g.config.ServerErrResponse.HTTPStatus)
+						w.Write(g.config.ServerErrResponse.HTTPResponse)
+						return
 					}
 				}
 			} else {
@@ -764,7 +775,7 @@ type RoutingHandlerConfig struct {
 	//
 	// Default status value is http.StatusForbidden
 	// Default response value is []byte("Not authorized to access url")
-	UnauthorizedErrResponse HTTPResponseConfig
+	ForbiddenURLErrResponse HTTPResponseConfig
 }
 
 type RoutingHandler struct {
@@ -799,7 +810,7 @@ func (routing *RoutingHandler) MiddlewareFunc(next http.Handler) http.Handler {
 			var urls map[string]bool
 			var err error
 
-			setHTTPResponseDefaults(&routing.config.UnauthorizedErrResponse, http.StatusInternalServerError, []byte(unauthorizedURLTxt))
+			setHTTPResponseDefaults(&routing.config.ForbiddenURLErrResponse, http.StatusForbidden, []byte(forbiddenURLTxt))
 			setHTTPResponseDefaults(&routing.config.ServerErrResponse, http.StatusInternalServerError, []byte(serverErrTxt))
 
 			// Queries from db and sets the bytes returned to url map
@@ -808,7 +819,8 @@ func (routing *RoutingHandler) MiddlewareFunc(next http.Handler) http.Handler {
 
 				if err != nil {
 					if err == sql.ErrNoRows {
-						next.ServeHTTP(w, r)
+						w.WriteHeader(*routing.config.ForbiddenURLErrResponse.HTTPStatus)
+						w.Write(routing.config.ForbiddenURLErrResponse.HTTPResponse)
 						return err
 					}
 
@@ -856,18 +868,36 @@ func (routing *RoutingHandler) MiddlewareFunc(next http.Handler) http.Handler {
 							// If RoutingHandlerConfig#IgnoreCacheNil is set,
 							// then we ignore that the cache result came back
 							// nil and query the database anyways
+							//
+							// Else we return forbidden error
 							if routing.config.IgnoreCacheNil {
 								if err = setURLsFromDB(); err != nil {
 									return
 								}
 							} else {
-								next.ServeHTTP(w, r)
+								w.WriteHeader(*routing.config.ForbiddenURLErrResponse.HTTPStatus)
+								w.Write(routing.config.ForbiddenURLErrResponse.HTTPResponse)
 								return
 							}
 						}
+					} else {
+						err = json.Unmarshal(urlBytes, &urls)
+
+						if err != nil {
+							w.WriteHeader(*routing.config.ServerErrResponse.HTTPStatus)
+							w.Write(routing.config.ServerErrResponse.HTTPResponse)
+							return
+						}
 					}
 
-					//fmt.Printf("user path urls: %v\n", urls)
+					if _, ok := urls[pathExp]; ok {
+						allowedPath = true
+					}
+				} else {
+					if err = setURLsFromDB(); err != nil {
+						return
+					}
+
 					if _, ok := urls[pathExp]; ok {
 						allowedPath = true
 					}
@@ -880,11 +910,11 @@ func (routing *RoutingHandler) MiddlewareFunc(next http.Handler) http.Handler {
 				}
 			}
 
-			// If returned urls do not match an urls user is allowed to
+			// If returned urls do not match any urls user is allowed to
 			// access, return with error response
 			if !allowedPath {
-				w.WriteHeader(*routing.config.UnauthorizedErrResponse.HTTPStatus)
-				w.Write(routing.config.UnauthorizedErrResponse.HTTPResponse)
+				w.WriteHeader(*routing.config.ForbiddenURLErrResponse.HTTPStatus)
+				w.Write(routing.config.ForbiddenURLErrResponse.HTTPResponse)
 				return
 			}
 		}

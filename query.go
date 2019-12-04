@@ -70,9 +70,8 @@ type Entity interface {
 // DBInterface is the main interface that should be used in your
 // request handler functions
 type DBInterface interface {
-	XODB
+	Entity
 	Transaction
-	SqlxDB
 }
 
 type DBInterfaceV2 interface {

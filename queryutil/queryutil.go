@@ -15,7 +15,6 @@ import (
 	"github.com/TravisS25/httputil/confutil"
 
 	"github.com/TravisS25/httputil"
-	"github.com/TravisS25/httputil/apiutil"
 	"github.com/TravisS25/httputil/dbutil"
 	"github.com/knq/snaker"
 
@@ -2492,13 +2491,11 @@ func SetRowerResults(
 
 			switch val.(type) {
 			case int64:
-				v = strconv.FormatInt(val.(int64), apiutil.IntBase)
-				//formVal = strconv.FormatInt(v.(int64), confutil.IntBase)
+				v = strconv.FormatInt(val.(int64), confutil.IntBase)
 			case *int64:
 				t := val.(*int64)
 				if t != nil {
-					v = strconv.FormatInt(*t, apiutil.IntBase)
-					//formVal = strconv.FormatInt(*t, confutil.IntBase)
+					v = strconv.FormatInt(*t, confutil.IntBase)
 				}
 			case []byte:
 				t := val.([]byte)
@@ -2506,8 +2503,6 @@ func SetRowerResults(
 				if err != nil {
 					panic(err)
 				}
-				//v = f
-				//formVal = strconv.FormatFloat(f, 'f', 2, confutil.IntBitSize)
 			default:
 				v = val
 			}

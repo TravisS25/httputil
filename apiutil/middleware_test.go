@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gorilla/sessions"
@@ -48,10 +49,23 @@ var (
 		"Admin":   true,
 		"Manager": false,
 	}
+
+	// This should be used for read only
+	routingMap = map[string]bool{
+		"/url1": true,
+		"/url2": true,
+	}
 )
 
 func getCacheFunc(key string) ([]byte, error) {
-	return json.Marshal(groupMap)
+	if strings.Contains(key, "groups") {
+		return json.Marshal(groupMap)
+	}
+
+	return json.Marshal(routingMap)
+}
+func getCacheFuncInvalidJSON(key string) ([]byte, error) {
+	return json.Marshal([]string{"foo"})
 }
 func getCacheFuncErr(key string) ([]byte, error) {
 	return nil, errors.New(generalErr)
@@ -446,10 +460,14 @@ func TestGroupMiddleware(t *testing.T) {
 			return nil, errors.New(generalErr)
 		}
 
-		groupMap := map[string]bool{
-			"Admin":   true,
-			"Manager": false,
+		if r.Header.Get(queryGroups) == invalidJSON {
+			return json.Marshal([]string{"foo"})
 		}
+
+		// groupMap := map[string]bool{
+		// 	"Admin":   true,
+		// 	"Manager": false,
+		// }
 		groupBytes, err := json.Marshal(groupMap)
 
 		if err != nil {
@@ -461,10 +479,7 @@ func TestGroupMiddleware(t *testing.T) {
 	groupHandler := NewGroupHandler(
 		mockDB,
 		queryForGroups,
-		GroupHandlerConfig{
-		// CacheStore:     mockCache,
-		// IgnoreCacheNil: true,
-		},
+		GroupHandlerConfig{},
 	)
 
 	// Testing that if user is not logged in,
@@ -498,7 +513,6 @@ func TestGroupMiddleware(t *testing.T) {
 	// Testing that user is logged in but db returns with
 	// no rows which should just go to next handler
 	rr = httptest.NewRecorder()
-	h = groupHandler.MiddlewareFunc(mockHandler)
 	h.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -511,7 +525,6 @@ func TestGroupMiddleware(t *testing.T) {
 	// Testing that user is logged in but db returns
 	// with an error
 	rr = httptest.NewRecorder()
-	h = groupHandler.MiddlewareFunc(mockHandler)
 	h.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusInternalServerError {
@@ -524,7 +537,6 @@ func TestGroupMiddleware(t *testing.T) {
 	// Testing that user is logged in and
 	// db returns proper map
 	rr = httptest.NewRecorder()
-	h = groupHandler.MiddlewareFunc(mockHandler)
 	h.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -532,23 +544,321 @@ func TestGroupMiddleware(t *testing.T) {
 	}
 
 	// Setting up to use cache but fail and also
-	// the db return error
+	// the db returns an error
 	req.Header.Set(queryGroups, generalErr)
 	groupHandler.config.CacheStore = mockCache
-	groupHandler.config.IgnoreCacheNil = true
+
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusInternalServerError {
 		t.Errorf(statusErrTxt, http.StatusInternalServerError, rr.Code)
 	}
 
+	// Setting up where we get cache nil err and
+	// db also fails
+	mockCache.GetFunc = getCacheFuncNilErr
+	groupHandler.config.IgnoreCacheNil = true
+
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf(statusErrTxt, http.StatusInternalServerError, rr.Code)
+	}
+
+	// Setting up where we don't ignore cache nil
+	groupHandler.config.IgnoreCacheNil = false
+	req.Header.Set(queryGroups, "")
+
+	// Testing that our handler will skip db
+	// and go to next handler
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf(statusErrTxt, http.StatusOK, rr.Code)
+		t.Errorf("err: %s\n", rr.Body)
+	}
+
 	// Setting up for cache to return nil and then
 	// for db to also fail
+	req.Header.Set(queryGroups, generalErr)
 	mockCache.GetFunc = getCacheFuncNilErr
 	groupHandler.config.CacheStore = mockCache
+	groupHandler.config.IgnoreCacheNil = true
 
-	// Testing
+	// Testing that cache returns nil and then db
+	// also fails
 	rr = httptest.NewRecorder()
-	h = groupHandler.MiddlewareFunc(mockHandler)
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf(statusErrTxt, http.StatusInternalServerError, rr.Code)
+		t.Errorf("err: %s\n", rr.Body)
+	}
+
+	// Setting up where we get cache err and
+	// don't ignore nil so should continue to
+	// next handler
+	groupHandler.config.IgnoreCacheNil = false
+
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf(statusErrTxt, http.StatusOK, rr.Code)
+		t.Errorf("err: %s\n", rr.Body)
+	}
+
+	// Setting up that cache returns successfully
+	req.Header.Set(queryGroups, "")
+	mockCache.GetFunc = getCacheFunc
+	groupHandler.config.CacheStore = mockCache
+
+	// Testing that cache returns successfully and returns
+	// group map
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf(statusErrTxt, http.StatusOK, rr.Code)
+	}
+
+	// Setting up where db returns invalid json
+	req.Header.Set(queryGroups, invalidJSON)
+	groupHandler.config.CacheStore = nil
+
+	// Testing that db returns invalid json resulting
+	// in server error
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf(statusErrTxt, http.StatusInternalServerError, rr.Code)
+	}
+
+	// Setting up where cache return invalid json
+	// resulting in server error
+	mockCache.GetFunc = getCacheFuncInvalidJSON
+	groupHandler.config.CacheStore = mockCache
+
+	// Testing cache returns invalid json
+	// resulting in server error
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf(statusErrTxt, http.StatusInternalServerError, rr.Code)
+	}
+}
+
+func TestRoutingMiddleware(t *testing.T) {
+	queryRouting := "queryRouting"
+	path := "path"
+	invalidPath := "invalidPath"
+
+	pathRegex := func(r *http.Request) (string, error) {
+		if r.Header.Get(path) == invalidPath {
+			return "invalidPath", nil
+		}
+
+		if r.Header.Get(path) == generalErr {
+			return "", errors.New(generalErr)
+		}
+
+		return "/url1", nil
+	}
+	// pathRegexErr := func(r *http.Request) (string, error) {
+	// 	return "", errors.New(generalErr)
+	// }
+
+	req := httptest.NewRequest(http.MethodOptions, "/url", nil)
+	mockCache := &cachetest.MockCache{
+		GetFunc:    getCacheFuncErr,
+		HasKeyFunc: hasKeyCacheFunc,
+	}
+	mockDB := &dbtest.MockDB{
+		RecoverErrorFunc: func(err error) bool {
+			return true
+		},
+	}
+	queryForRouting := func(w http.ResponseWriter, r *http.Request, db httputil.DBInterfaceV2) ([]byte, error) {
+		if r.Header.Get(queryRouting) == noRowsErr {
+			return nil, sql.ErrNoRows
+		}
+
+		if r.Header.Get(queryRouting) == generalErr {
+			return nil, errors.New(generalErr)
+		}
+
+		if r.Header.Get(queryRouting) == invalidJSON {
+			return json.Marshal([]string{"foo"})
+		}
+
+		routingBytes, err := json.Marshal(routingMap)
+
+		if err != nil {
+			return nil, err
+		}
+
+		return routingBytes, err
+	}
+	routingHandler := NewRoutingHandler(
+		mockDB,
+		queryForRouting,
+		pathRegex,
+		map[string]bool{
+			"/url1": true,
+		},
+		RoutingHandlerConfig{},
+	)
+
+	// Testing that option request just simply
+	// goes to the next handler
+	rr := httptest.NewRecorder()
+	h := routingHandler.MiddlewareFunc(mockHandler)
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf(statusErrTxt, http.StatusOK, rr.Code)
+	}
+
+	// Testing that path regex returns err
+	// (this should not really ever happen)
+	req.Method = http.MethodGet
+	req.Header.Set(path, generalErr)
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf(statusErrTxt, http.StatusInternalServerError, rr.Code)
+	}
+
+	// Setting up request where user is not logged in
+	// so should use non user urls and be match
+	req.Header.Set(path, "")
+	routingHandler.pathRegex = pathRegex
+
+	// Testing successful url find on non user
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf(statusErrTxt, http.StatusOK, rr.Code)
+	}
+
+	// Setting up invalid path return so user
+	// should unauthorized error
+	req.Header.Set(path, invalidPath)
+	routingHandler.pathRegex = pathRegex
+
+	// Testing user gets error trying to access url
+	// not in non user map
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf(statusErrTxt, http.StatusForbidden, rr.Code)
+	}
+
+	// Adding middleware user to context of request
+	// so it acts like user is logged in
+	u := mUser
+	ctx := req.Context()
+	ctx = context.WithValue(ctx, MiddlewareUserCtxKey, u)
+	req = req.WithContext(ctx)
+
+	// Setting up where cache is not set
+	// and db returns no rows error
+	// which results in forbidden status
+	req.Header.Set(queryRouting, noRowsErr)
+
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf(statusErrTxt, http.StatusForbidden, rr.Code)
+	}
+
+	// Setting up where cache is not and
+	// db returns invalid json bytes resulting
+	// in internal server err
+	req.Header.Set(queryRouting, invalidJSON)
+
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf(statusErrTxt, http.StatusInternalServerError, rr.Code)
+	}
+
+	// Setting up where cache is not set but
+	// db returns results and path is allowed
+	// which should result in ok status
+	req.Header.Set(queryRouting, "")
+	req.Header.Set(path, "")
+
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf(statusErrTxt, http.StatusOK, rr.Code)
+	}
+
+	// Setting up where cache is set but returns
+	// error and db also returns error
+	req.Header.Set(queryRouting, generalErr)
+	routingHandler.config.CacheStore = mockCache
+
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf(statusErrTxt, http.StatusInternalServerError, rr.Code)
+	}
+
+	// Setting up where cache returns nil error
+	// and we ignore the nil error and query db
+	// which also returns an error
+	mockCache.GetFunc = getCacheFuncNilErr
+	routingHandler.config.CacheStore = mockCache
+	routingHandler.config.IgnoreCacheNil = true
+
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf(statusErrTxt, http.StatusInternalServerError, rr.Code)
+	}
+
+	// Setting up here cache nil error is not ignored
+	// so we simply give forbidden error
+	routingHandler.config.IgnoreCacheNil = false
+
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf(statusErrTxt, http.StatusForbidden, rr.Code)
+	}
+
+	// Setting up where we get url bytes from cache
+	// and but it's invalid json
+	mockCache.GetFunc = getCacheFuncInvalidJSON
+
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf(statusErrTxt, http.StatusInternalServerError, rr.Code)
+	}
+
+	// Setting up where we get cache and is valid
+	// to move on to the next handler
+	mockCache.GetFunc = getCacheFunc
+
+	rr = httptest.NewRecorder()
 	h.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusOK {
