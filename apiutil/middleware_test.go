@@ -141,58 +141,12 @@ func TestAuthMiddleware(t *testing.T) {
 	queryUser := "queryUser"
 	querySession := "querySession"
 
-	// getFuncErr := func(r *http.Request, name string) (*sessions.Session, error) {
-	// 	return nil, errors.New("error")
-	// }
-	// pingFunc := func() (bool, error) {
-	// 	return true, nil
-	// }
-	// pingFuncErr := func() (bool, error) {
-	// 	return false, errors.New("error")
-	// }
-	// saveFunc := func(r *http.Request, w http.ResponseWriter, s *sessions.Session) error {
-	// 	return nil
-	// }
 	mockSessionStore := &cachetest.MockSessionStore{
 		GetFunc:  getSessionFuncErr,
 		NewFunc:  getSessionFuncErr,
 		PingFunc: pingSessionFuncErr,
 		SaveFunc: saveSessionFunc,
 	}
-	// getFuncNewSession := func(r *http.Request, name string) (*sessions.Session, error) {
-	// 	s := sessions.NewSession(mockSessionStore, cookieName)
-	// 	s.IsNew = true
-	// 	return s, nil
-	// }
-	// getFuncSession := func(r *http.Request, name string) (*sessions.Session, error) {
-	// 	s := sessions.NewSession(mockSessionStore, cookieName)
-	// 	s.IsNew = false
-	// 	return s, nil
-	// }
-	// getFuncSessionWithValues := func(r *http.Request, name string) (*sessions.Session, error) {
-	// 	s := sessions.NewSession(mockSessionStore, cookieName)
-	// 	u := mUser
-	// 	bUser, err := json.Marshal(&u)
-
-	// 	if err != nil {
-	// 		return s, err
-	// 	}
-
-	// 	s.Values[cookieName] = bUser
-	// 	return s, nil
-	// }
-	// getFuncSessionWithInvalidValues := func(r *http.Request, name string) (*sessions.Session, error) {
-	// 	s := sessions.NewSession(mockSessionStore, cookieName)
-	// 	foo := []string{"foo"}
-	// 	bUser, err := json.Marshal(&foo)
-
-	// 	if err != nil {
-	// 		return s, err
-	// 	}
-
-	// 	s.Values[cookieName] = bUser
-	// 	return s, nil
-	// }
 
 	request := httptest.NewRequest(http.MethodGet, "/url", nil)
 	mockDB := &dbtest.MockDB{
@@ -208,7 +162,7 @@ func TestAuthMiddleware(t *testing.T) {
 				UserKey: "user",
 			},
 		},
-		QueryForSession: func(w http.ResponseWriter, db httputil.DBInterfaceV2, userID string) (string, error) {
+		QueryForSession: func(w http.ResponseWriter, db httputil.Querier, userID string) (string, error) {
 			if userID == "1" {
 				return "some session", nil
 			}
@@ -220,7 +174,7 @@ func TestAuthMiddleware(t *testing.T) {
 			return "", errors.New("error")
 		},
 	}
-	queryForUser := func(w http.ResponseWriter, r *http.Request, db httputil.DBInterfaceV2) ([]byte, error) {
+	queryForUser := func(w http.ResponseWriter, r *http.Request, db httputil.Querier) ([]byte, error) {
 		if r.Header.Get(queryUser) == decodeErr {
 			return nil, cachetest.NewMockSessionError(nil, "Decode cookie error", false, true, false)
 		}
@@ -451,7 +405,7 @@ func TestGroupMiddleware(t *testing.T) {
 			return true
 		},
 	}
-	queryForGroups := func(w http.ResponseWriter, r *http.Request, db httputil.DBInterfaceV2) ([]byte, error) {
+	queryForGroups := func(w http.ResponseWriter, r *http.Request, db httputil.Querier) ([]byte, error) {
 		if r.Header.Get(queryGroups) == noRowsErr {
 			return nil, sql.ErrNoRows
 		}
@@ -683,7 +637,7 @@ func TestRoutingMiddleware(t *testing.T) {
 			return true
 		},
 	}
-	queryForRouting := func(w http.ResponseWriter, r *http.Request, db httputil.DBInterfaceV2) ([]byte, error) {
+	queryForRouting := func(w http.ResponseWriter, r *http.Request, db httputil.Querier) ([]byte, error) {
 		if r.Header.Get(queryRouting) == noRowsErr {
 			return nil, sql.ErrNoRows
 		}

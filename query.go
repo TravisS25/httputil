@@ -79,8 +79,17 @@ type DBInterfaceV2 interface {
 	Recover
 }
 
+// type Recover interface {
+// 	RecoverError(err error) bool
+// }
+
 type Recover interface {
-	RecoverError(err error) bool
+	RecoverError(err error) (DBInterfaceV2, error)
+}
+
+type RecoverQuerier interface {
+	Querier
+	Recover
 }
 
 type FormSelection struct {

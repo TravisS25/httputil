@@ -75,7 +75,7 @@ type InsertLogger interface {
 	InsertLog(r *http.Request, payload string, db httputil.DBInterface) error
 }
 
-type QueryDB func(w http.ResponseWriter, res *http.Request, db httputil.DBInterfaceV2) ([]byte, error)
+type QueryDB func(w http.ResponseWriter, res *http.Request, db httputil.Querier) ([]byte, error)
 
 func setHTTPResponseDefaults(config *HTTPResponseConfig, defaultStatus int, defaultResponse []byte) {
 	if config.HTTPStatus == nil {
@@ -411,7 +411,7 @@ type AuthHandlerConfig struct {
 	//
 	// This is bascially a recovery method if implementing SessionStore ever
 	// goes down or some how gets its values flushed
-	QueryForSession func(w http.ResponseWriter, db httputil.DBInterfaceV2, userID string) (sessionID string, err error)
+	QueryForSession func(w http.ResponseWriter, db httputil.Querier, userID string) (sessionID string, err error)
 
 	// DecodeCookieErrResponse is config used to respond to user if decoding
 	// a cookie is invalid
@@ -774,7 +774,7 @@ type RoutingHandlerConfig struct {
 	// a user is allowed to access
 	//
 	// Default status value is http.StatusForbidden
-	// Default response value is []byte("Not authorized to access url")
+	// Default response value is []byte("Forbidden to access url")
 	ForbiddenURLErrResponse HTTPResponseConfig
 }
 

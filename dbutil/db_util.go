@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"sync"
 
 	"github.com/TravisS25/httputil/confutil"
 
@@ -29,6 +28,10 @@ const (
 const (
 	Postgres = "postgres"
 	Mysql    = "mysql"
+)
+
+const (
+	DBConnStr = "host=%s user=%s password=%s dbname=%s port=%s sslmode=%s"
 )
 
 var (
@@ -115,9 +118,10 @@ func (c *CustomTx) Select(dest interface{}, query string, args ...interface{}) e
 // DB extends sqlx.DB with some extra functions
 type DB struct {
 	*sqlx.DB
-	dbConfigList []confutil.Database
-	dbType       string
-	mu           sync.Mutex
+	dbConfigList  []confutil.Database
+	currentConfig confutil.Database
+	dbType        string
+	//mu            sync.Mutex
 }
 
 // Begin is wrapper for sqlx.DB.Begin
@@ -141,6 +145,58 @@ func (db *DB) Query(query string, args ...interface{}) (httputil.Rower, error) {
 	return db.DB.Query(query, args...)
 }
 
+// // RecoverError will check if given err is not nil and if it is
+// // it will loop through dbConfigList, if any, and try to establish
+// // a new connection with a different database
+// //
+// // This function should be used if you have a distributed type database
+// // i.e. CockroachDB and don't want any interruptions if a node goes down
+// //
+// // This function does not check what type of err is passed, just checks
+// // if err is nil or not so it's up to user to use appropriately; however
+// // we do a quick ping check just to make sure db is truely down
+// func (db *DB) RecoverError(err error) bool {
+// 	if err != nil {
+// 		db.mu.Lock()
+// 		defer db.mu.Unlock()
+
+// 		dbInfo := fmt.Sprintf(
+// 			DBConnStr,
+// 			db.currentConfig.Host,
+// 			db.currentConfig.User,
+// 			db.currentConfig.Password,
+// 			db.currentConfig.DBName,
+// 			db.currentConfig.Port,
+// 			db.currentConfig.SSLMode,
+// 		)
+
+// 		_, err = db.Driver().Open(dbInfo)
+
+// 		if err != nil {
+// 			if len(db.dbConfigList) == 0 {
+// 				return false
+// 			}
+
+// 			foundNewConnection := false
+// 			newDB, err := NewDBWithList(db.dbConfigList, db.dbType)
+
+// 			if err == nil {
+// 				db = newDB
+// 				foundNewConnection = true
+// 			}
+
+// 			if !foundNewConnection {
+// 				return false
+// 			}
+
+// 			return true
+// 		}
+
+// 		return true
+// 	}
+// 	return true
+// }
+
 // RecoverError will check if given err is not nil and if it is
 // it will loop through dbConfigList, if any, and try to establish
 // a new connection with a different database
@@ -151,49 +207,45 @@ func (db *DB) Query(query string, args ...interface{}) (httputil.Rower, error) {
 // This function does not check what type of err is passed, just checks
 // if err is nil or not so it's up to user to use appropriately; however
 // we do a quick ping check just to make sure db is truely down
-func (db *DB) RecoverError(err error) bool {
+//
+// This function is NOT thread safe so one should create a mutex around
+// this function when trying to recover from error
+func (db *DB) RecoverError(err error) (httputil.DBInterfaceV2, error) {
 	if err != nil {
-		db.mu.Lock()
-		err = db.Ping()
+		// db.mu.Lock()
+		// defer db.mu.Unlock()
+
+		dbInfo := fmt.Sprintf(
+			DBConnStr,
+			db.currentConfig.Host,
+			db.currentConfig.User,
+			db.currentConfig.Password,
+			db.currentConfig.DBName,
+			db.currentConfig.Port,
+			db.currentConfig.SSLMode,
+		)
+
+		_, err = db.Driver().Open(dbInfo)
 
 		if err != nil {
+			fmt.Printf("connection officially failed\n")
 			if len(db.dbConfigList) == 0 {
-				db.mu.Unlock()
-				return false
+				return nil, ErrEmptyConfigList
 			}
 
-			//db.mu.Lock()
-			// db.validConn = false
-			foundNewConnection := false
+			//foundNewConnection := false
+			newDB, err := NewDBWithList(db.dbConfigList, db.dbType)
 
-			for _, v := range db.dbConfigList {
-				newDB, err := NewDB(v, db.dbType)
-
-				if err == nil {
-					db = newDB
-					foundNewConnection = true
-					//db.validConn = true
-					break
-				}
+			if err != nil {
+				return nil, ErrNoConnection
 			}
 
-			if !foundNewConnection {
-				db.mu.Unlock()
-				return false
-			}
-
-			// if !db.validConn {
-			// 	db.mu.Unlock()
-			// 	return false
-			// }
-
-			return true
+			return newDB, err
 		}
 
-		db.mu.Unlock()
-		return true
+		return db, nil
 	}
-	return true
+	return db, nil
 }
 
 //----------------------------- FUNCTIONS -------------------------------------
@@ -202,7 +254,7 @@ func (db *DB) RecoverError(err error) bool {
 // If db connection fails, returns error
 func NewDB(dbConfig confutil.Database, dbType string) (*DB, error) {
 	dbInfo := fmt.Sprintf(
-		"host=%s user=%s password=%s dbname=%s port=%s sslmode=%s",
+		DBConnStr,
 		dbConfig.Host,
 		dbConfig.User,
 		dbConfig.Password,
@@ -218,7 +270,7 @@ func NewDB(dbConfig confutil.Database, dbType string) (*DB, error) {
 	if err = db.Ping(); err != nil {
 		return nil, err
 	}
-	return &DB{DB: db}, nil
+	return &DB{DB: db, dbType: dbType}, nil
 }
 
 func NewDBWithList(dbConfigList []confutil.Database, dbType string) (*DB, error) {
@@ -231,8 +283,7 @@ func NewDBWithList(dbConfigList []confutil.Database, dbType string) (*DB, error)
 
 		if err == nil {
 			newDB.dbConfigList = dbConfigList
-			newDB.dbType = dbType
-			//newDB.validConn = true
+			newDB.currentConfig = v
 			return newDB, nil
 		}
 	}
@@ -244,7 +295,7 @@ func dbError(w http.ResponseWriter, err error, db httputil.Recover) bool {
 	if err != nil {
 		confutil.CheckError(err, "")
 
-		if db.RecoverError(err) {
+		if _, err := db.RecoverError(err); err != nil {
 			w.WriteHeader(http.StatusTemporaryRedirect)
 			return true
 		}
@@ -254,6 +305,21 @@ func dbError(w http.ResponseWriter, err error, db httputil.Recover) bool {
 
 	return false
 }
+
+// func dbError(w http.ResponseWriter, err error, db httputil.Recover) bool {
+// 	if err != nil {
+// 		confutil.CheckError(err, "")
+
+// 		if db.RecoverError(err) {
+// 			w.WriteHeader(http.StatusTemporaryRedirect)
+// 			return true
+// 		}
+
+// 		return true
+// 	}
+
+// 	return false
+// }
 
 // HasDBError will check if given err is not nil and if it is
 // it will loop through dbConfigList, if any, and try to establish
@@ -278,6 +344,13 @@ func HasQueryOrDBError(w http.ResponseWriter, err error, db httputil.Recover, no
 
 	return dbError(w, err, db)
 }
+
+// func RecoverFromError(db httputil.Recover, newDB httputil.DBInterfaceV2, err error) (httputil.DBInterfaceV2, error) {
+// 	dbMutex.Lock()
+// 	defer dbMutex.Unlock()
+// 	// newDB, err = db.RecoverError(err)
+// 	return db.RecoverError(err)
+// }
 
 // QueryCount is used for queries that consist of count in select statement
 func QueryCount(db httputil.SqlxDB, query string, args ...interface{}) (*Count, error) {
